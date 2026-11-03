@@ -5,6 +5,23 @@
 // ==============================================================================
 
 import { supabase, isSupabaseConfigured } from './supabase';
+
+export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isValidUUID(id: unknown): boolean {
+  return typeof id === 'string' && UUID_REGEX.test(id);
+}
+export function ensureUUID(id?: string | null): string {
+  if (id && isValidUUID(id)) return id;
+  if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
+    return (crypto as any).randomUUID() as string;
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
 import type {
   UserProfile, UserRole, SubscriptionTier, SubscriptionStatus,
   Subject, Lesson, LessonProgress, ExamAttempt, Certificate,
@@ -327,7 +344,9 @@ export async function sbGetAllAttempts(): Promise<ExamAttempt[]> {
 export async function sbSaveAttempt(attempt: ExamAttempt): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
   try {
-    const { error } = await supabase.from('exam_attempts').upsert({ id: attempt.id, exam_id: attempt.examId, student_id: attempt.studentId, subject_name: attempt.subjectName ?? null, started_at: attempt.startedAt, submitted_at: attempt.submittedAt ?? null, time_spent_seconds: attempt.timeSpentSeconds, auto_score: attempt.autoScore, essay_score: attempt.essayScore, total_score: attempt.totalScore, max_score: attempt.maxScore, percentage: attempt.percentage, passed: attempt.passed, status: attempt.status, violation_count: attempt.violationCount, violation_logs: attempt.violationLogs, is_provisional: attempt.isProvisional }, { onConflict: 'id' });
+    const attemptId = ensureUUID(attempt.id);
+    attempt.id = attemptId;
+    const { error } = await supabase.from('exam_attempts').upsert({ id: attemptId, exam_id: attempt.examId, student_id: attempt.studentId, subject_name: attempt.subjectName ?? null, started_at: attempt.startedAt, submitted_at: attempt.submittedAt ?? null, time_spent_seconds: attempt.timeSpentSeconds, auto_score: attempt.autoScore, essay_score: attempt.essayScore, total_score: attempt.totalScore, max_score: attempt.maxScore, percentage: attempt.percentage, passed: attempt.passed, status: attempt.status, violation_count: attempt.violationCount, violation_logs: attempt.violationLogs, is_provisional: attempt.isProvisional }, { onConflict: 'id' });
     if (error) { console.warn('[sbSaveAttempt]', error.message); return false; }
     return true;
   } catch { return false; }
@@ -502,7 +521,9 @@ export async function sbGetChallengeByCode(code: string): Promise<LiveChallenge 
 export async function sbUpsertChallenge(challenge: LiveChallenge): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
   try {
-    const { error } = await supabase.from('challenges').upsert({ id: challenge.id, subject_id: challenge.subjectId, subject_name: challenge.subjectName, code: challenge.code, title: challenge.title, created_by: challenge.createdBy, creator_name: challenge.creatorName, creator_governorate: challenge.creatorGovernorate ?? null, is_open_challenge: challenge.isOpenChallenge ?? false, opponent_id: challenge.opponentId ?? null, opponent_name: challenge.opponentName ?? null, status: challenge.status, time_limit_seconds: challenge.timeLimitSeconds, questions: challenge.questions, creator_score: challenge.creatorScore, opponent_score: challenge.opponentScore, winner_id: challenge.winnerId ?? null, winner_name: challenge.winnerName ?? null, finished_at: challenge.finishedAt ?? null }, { onConflict: 'id' });
+    const challengeId = ensureUUID(challenge.id);
+    challenge.id = challengeId;
+    const { error } = await supabase.from('challenges').upsert({ id: challengeId, subject_id: challenge.subjectId, subject_name: challenge.subjectName, code: challenge.code, title: challenge.title, created_by: challenge.createdBy, creator_name: challenge.creatorName, creator_governorate: challenge.creatorGovernorate ?? null, is_open_challenge: challenge.isOpenChallenge ?? false, opponent_id: challenge.opponentId ?? null, opponent_name: challenge.opponentName ?? null, status: challenge.status, time_limit_seconds: challenge.timeLimitSeconds, questions: challenge.questions, creator_score: challenge.creatorScore, opponent_score: challenge.opponentScore, winner_id: challenge.winnerId ?? null, winner_name: challenge.winnerName ?? null, finished_at: challenge.finishedAt ?? null }, { onConflict: 'id' });
     if (error) { console.warn('[sbUpsertChallenge]', error.message); return false; }
     return true;
   } catch { return false; }
@@ -649,7 +670,9 @@ export async function sbGetGoals(studentId: string): Promise<StudentGoal[]> {
 export async function sbSaveGoal(goal: StudentGoal): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
   try {
-    const { error } = await supabase.from('student_goals').upsert({ id: goal.id, student_id: goal.studentId, subject_id: goal.subjectId, subject_name: goal.subjectName, target_percentage: goal.targetPercentage, current_percentage: goal.currentPercentage }, { onConflict: 'id' });
+    const goalId = ensureUUID(goal.id);
+    goal.id = goalId;
+    const { error } = await supabase.from('student_goals').upsert({ id: goalId, student_id: goal.studentId, subject_id: goal.subjectId, subject_name: goal.subjectName, target_percentage: goal.targetPercentage, current_percentage: goal.currentPercentage }, { onConflict: 'id' });
     return !error;
   } catch { return false; }
 }
@@ -667,7 +690,11 @@ export async function sbGetFlashcards(studentId: string, subjectId: string): Pro
 export async function sbSaveFlashcards(studentId: string, cards: Flashcard[]): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase || cards.length === 0) return false;
   try {
-    const rows = cards.map((c) => ({ id: c.id, subject_id: c.subjectId, student_id: studentId, front: c.front, back: c.back, created_by: c.createdBy }));
+    const rows = cards.map((c) => {
+      const cardId = ensureUUID(c.id);
+      c.id = cardId;
+      return { id: cardId, subject_id: c.subjectId, student_id: studentId, front: c.front, back: c.back, created_by: c.createdBy };
+    });
     const { error } = await supabase.from('flashcards').upsert(rows, { onConflict: 'id' });
     return !error;
   } catch { return false; }
@@ -703,10 +730,23 @@ export async function sbGetConversations(userId: string): Promise<RoboConversati
 export async function sbSaveConversation(conv: RoboConversation): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
   try {
-    await supabase.from('ai_conversations').upsert({ id: conv.id, user_id: conv.userId, title: conv.title }, { onConflict: 'id' });
+    const convId = ensureUUID(conv.id);
+    conv.id = convId; // Keep memory object compatible
+
+    await supabase.from('ai_conversations').upsert({ id: convId, user_id: conv.userId, title: conv.title }, { onConflict: 'id' });
     const msgs = conv.messages.slice(-20);
     if (msgs.length > 0) {
-      const rows = msgs.map((m) => ({ id: m.id, conversation_id: conv.id, sender: m.sender, text: m.text.substring(0, 5000), attachment_url: m.attachmentUrl && m.attachmentUrl.length < 300 ? m.attachmentUrl : null }));
+      const rows = msgs.map((m) => {
+        const msgId = ensureUUID(m.id);
+        m.id = msgId;
+        return {
+          id: msgId,
+          conversation_id: convId,
+          sender: m.sender,
+          text: m.text.substring(0, 5000),
+          attachment_url: m.attachmentUrl && m.attachmentUrl.length < 300 ? m.attachmentUrl : null,
+        };
+      });
       await supabase.from('ai_messages').upsert(rows, { onConflict: 'id' });
     }
     return true;

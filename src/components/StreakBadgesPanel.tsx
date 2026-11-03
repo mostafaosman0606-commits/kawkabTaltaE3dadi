@@ -88,7 +88,7 @@ export const StreakBadgesPanel: React.FC<Props> = ({ onNavigate: _onNavigate }) 
     const subject = subjects.find((s) => s.id === newGoalSubjectId);
     if (!subject) return;
     const goal: StudentGoal = {
-      id: `goal-${Date.now()}`,
+      id: (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => { const r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16); })),
       studentId: user.id,
       subjectId: newGoalSubjectId,
       subjectName: subject.nameAr,

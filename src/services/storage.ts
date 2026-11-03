@@ -62,6 +62,23 @@ import {
 } from './supabaseDb';
 import { syncQueue } from './syncQueue';
 
+// ==============================================================================
+// UUID GENERATOR — browser-native, no external dependency
+// Always generates RFC-4122 v4 UUIDs compatible with Supabase UUID columns
+// ==============================================================================
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
+    return (crypto as any).randomUUID() as string;
+  }
+  // Fallback for environments without crypto.randomUUID
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+
 // Storage keys - Version 9: Enhanced production database with complete teacher and curriculum seed data
 const STORAGE_KEYS = {
   VERSION: 'kawkab_db_version_v9',
@@ -1396,7 +1413,7 @@ export class LocalDatabaseEngine {
 
     const questions = this.getQuestionsByExam(examId);
     const student = this.getProfileById(studentId);
-    const attemptId = `att-${Date.now()}`;
+    const attemptId = generateUUID();
 
     let autoScore = 0;
     let maxScore = 0;
@@ -1553,7 +1570,7 @@ export class LocalDatabaseEngine {
           const student = this.getProfileById(studentId);
 
           const authoritativeAttempt: ExamAttempt = {
-            id: s.id || `att-${Date.now()}`,
+            id: s.id || generateUUID(),
             examId,
             studentId,
             studentName: s.studentName || student?.fullName || 'طالب كوكب تالتة',
@@ -1679,7 +1696,7 @@ export class LocalDatabaseEngine {
 
     const certNum = `CERT_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
     const newCert: Certificate = {
-      id: `cert-${Date.now()}`,
+      id: generateUUID(),
       certificateNumber: certNum,
       studentId: attempt.studentId,
       examId: attempt.examId,
@@ -1765,7 +1782,7 @@ export class LocalDatabaseEngine {
     const reqs = this.get<SubscriptionRequest[]>(STORAGE_KEYS.REQUESTS, []);
     const newReq: SubscriptionRequest = {
       ...request,
-      id: `req-${Date.now()}`,
+      id: generateUUID(),
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
@@ -1876,7 +1893,7 @@ export class LocalDatabaseEngine {
     }
 
     const newChallenge: LiveChallenge = {
-      id: `chl-${Date.now()}`,
+      id: generateUUID(),
       subjectId,
       subjectName: sub?.nameAr || 'المادة الدراسية',
       code,
@@ -2235,7 +2252,7 @@ export class LocalDatabaseEngine {
 
               all[uid] = [
                 {
-                  id: `conv-legacy-${Date.now()}`,
+                  id: generateUUID(),
                   userId: uid,
                   title,
                   createdAt: msgs[0]?.createdAt || new Date().toISOString(),
@@ -2251,6 +2268,35 @@ export class LocalDatabaseEngine {
       console.warn('Robo conversation migration error:', e);
     }
 
+    // Auto-upgrade legacy non-UUID IDs to valid UUIDs to maintain DB compatibility
+    try {
+      let changed = false;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      Object.keys(all).forEach((uid) => {
+        if (Array.isArray(all[uid])) {
+          all[uid].forEach((c) => {
+            if (!uuidRegex.test(c.id)) {
+              c.id = generateUUID();
+              changed = true;
+            }
+            if (Array.isArray(c.messages)) {
+              c.messages.forEach((m) => {
+                if (!uuidRegex.test(m.id)) {
+                  m.id = generateUUID();
+                  changed = true;
+                }
+              });
+            }
+          });
+        }
+      });
+      if (changed) {
+        this.set(STORAGE_KEYS.ROBO_CONVERSATIONS, all);
+      }
+    } catch (e) {
+      console.warn('Auto-upgrade legacy convs error:', e);
+    }
+
     return all;
   }
 
@@ -2258,14 +2304,14 @@ export class LocalDatabaseEngine {
     const all = this.getRoboConversationsStorage();
     if (!all[userId] || all[userId].length === 0) {
       const initialConv: RoboConversation = {
-        id: `conv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        id: generateUUID(),
         userId,
         title: 'محادثة جديدة',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         messages: [
           {
-            id: 'msg-seed',
+            id: generateUUID(),
             sender: 'assistant',
             text: 'أهلاً بك يا بطل! أنا "روبو" 🤖 معلمك الذكي في كوكب تالتة إعدادي. كيف يمكنني مساعدتك اليوم في شرح درس أو حل مسألة؟ يمكنك أيضاً إرسال صورة السؤال وسأرشدك خطوة بخطوة!',
             createdAt: new Date().toISOString(),
@@ -2285,14 +2331,14 @@ export class LocalDatabaseEngine {
     const all = this.getRoboConversationsStorage();
     if (!all[userId]) all[userId] = [];
     const newConv: RoboConversation = {
-      id: `conv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: generateUUID(),
       userId,
       title,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       messages: [
         {
-          id: `msg-seed-${Date.now()}`,
+          id: generateUUID(),
           sender: 'assistant',
           text: 'أهلاً بك في محادثة جديدة! 🤖 أنا جاهز لمساعدتك في أي سؤال أو مسألة في منهج الشهادة الإعدادية. اسألني وسأتذكر سياق حديثنا طوال هذه المحادثة!',
           createdAt: new Date().toISOString(),
@@ -2337,7 +2383,7 @@ export class LocalDatabaseEngine {
     const { remaining } = this.getRoboDailyUsage(userId);
     const ts = Date.now();
     const userMsg: RoboMessage = {
-      id: `u-${ts}`,
+      id: generateUUID(),
       sender: 'user',
       text,
       attachmentUrl,
@@ -2386,7 +2432,7 @@ export class LocalDatabaseEngine {
     text: string
   ): RoboMessage {
     const replyMsg: RoboMessage = {
-      id: `a-${Date.now()}`,
+      id: generateUUID(),
       sender: 'assistant',
       text,
       createdAt: new Date().toISOString(),
@@ -2513,7 +2559,7 @@ export class LocalDatabaseEngine {
     const notifs = this.get<Notification[]>(STORAGE_KEYS.NOTIFICATIONS, []);
     const newN: Notification = {
       ...notif,
-      id: `notif-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: generateUUID(),
       isRead: false,
       createdAt: new Date().toISOString(),
     };
@@ -2932,7 +2978,7 @@ export class LocalDatabaseEngine {
   awardBadge(studentId: string, badgeType: BadgeType): StudentBadge | null {
     const all = this.get<StudentBadge[]>(STORAGE_KEYS.STUDENT_BADGES, []);
     if (all.some((b) => b.studentId === studentId && b.badgeType === badgeType)) return null;
-    const badge: StudentBadge = { id: `badge-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`, studentId, badgeType, earnedAt: new Date().toISOString(), isNew: true };
+    const badge: StudentBadge = { id: generateUUID(), studentId, badgeType, earnedAt: new Date().toISOString(), isNew: true };
     this.set(STORAGE_KEYS.STUDENT_BADGES, [...all, badge]);
     sbAwardBadge(studentId, badgeType).catch(() => {});
     return badge;
