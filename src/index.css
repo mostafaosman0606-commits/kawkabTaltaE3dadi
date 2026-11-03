@@ -1,0 +1,263 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-cairo: 'Cairo', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-alexandria: 'Alexandria', 'Cairo', sans-serif;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    overflow-y: auto;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: var(--font-cairo);
+    background-color: #070b14;
+    color: #f1f5f9;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    overflow-x: clip;
+  }
+
+  #root {
+    min-height: 100vh;
+    width: 100%;
+    position: relative;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  img, video, canvas, iframe, table {
+    max-width: 100%;
+  }
+}
+
+/* Custom scrollbars - Vibrant, ultra-responsive and clearly visible */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #080d1a;
+}
+::-webkit-scrollbar-thumb {
+  background: #0284c7;
+  border-radius: 9999px;
+  border: 2px solid #080d1a;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #38bdf8;
+}
+
+/* Firefox scrollbar support */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #0284c7 #080d1a;
+}
+
+/* Space star twinkling keyframes */
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-8px) rotate(1deg); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 15px rgba(6, 182, 212, 0.2), inset 0 0 15px rgba(6, 182, 212, 0.1); }
+  50% { box-shadow: 0 0 30px rgba(6, 182, 212, 0.4), inset 0 0 25px rgba(6, 182, 212, 0.2); }
+}
+
+.animate-twinkle {
+  animation: twinkle 3s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: floatSlow 5s ease-in-out infinite;
+}
+
+.glow-cyan {
+  box-shadow: 0 0 25px -5px rgba(6, 182, 212, 0.35);
+}
+
+.glow-blue {
+  box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.35);
+}
+
+.glow-purple {
+  box-shadow: 0 0 25px -5px rgba(168, 85, 247, 0.35);
+}
+
+.glass-panel {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(56, 189, 248, 0.12);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.glass-card-hover {
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.22s ease, box-shadow 0.22s ease;
+  will-change: transform;
+}
+.glass-card-hover:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: translateY(-2px) translateZ(0);
+  box-shadow: 0 10px 25px -5px rgba(6, 182, 212, 0.15);
+}
+
+/* 120 FPS Rendering & Scroll Performance Helpers */
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 120px;
+}
+
+.gpu-accelerated {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Smooth Page Navigation Animation */
+@keyframes pageFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-in {
+  animation: pageFadeIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Global Button & Interactive Click Animation (Tactile Press Feedback Everywhere) */
+button,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+.btn-tactile {
+  transition: transform 0.12s cubic-bezier(0.2, 0, 0, 1), filter 0.12s ease-out, box-shadow 0.12s ease-out;
+  cursor: pointer;
+}
+
+button:active:not(:disabled),
+[role="button"]:active,
+input[type="submit"]:active:not(:disabled),
+input[type="button"]:active:not(:disabled),
+.btn-tactile:active {
+  transform: scale(0.95);
+  filter: brightness(0.92);
+}
+
+
+/* ======================================================
+   LIGHT MODE - Global overrides when .light-mode on <html>
+   ====================================================== */
+html.light-mode {
+  background-color: #eef2ff;
+  color: #0f172a;
+}
+html.light-mode body {
+  background-color: #eef2ff;
+  color: #0f172a;
+}
+
+/* Main page backgrounds */
+html.light-mode .min-h-screen {
+  background-color: #eef2ff !important;
+}
+
+/* Override exact dark bg colors used in the app */
+html.light-mode [class*="bg-\[#070b14\]"],
+html.light-mode [class*="bg-\[#070c18\]"],
+html.light-mode [class*="bg-\[#0b1120\]"] {
+  background-color: #eef2ff !important;
+}
+
+/* Slate backgrounds → light equivalents */
+html.light-mode .bg-slate-900\/60  { background-color: rgba(226,232,240,0.8) !important; }
+html.light-mode .bg-slate-900\/80  { background-color: rgba(241,245,249,0.9) !important; }
+html.light-mode .bg-slate-900      { background-color: #f1f5f9 !important; }
+html.light-mode .bg-slate-800\/60  { background-color: rgba(203,213,225,0.6) !important; }
+html.light-mode .bg-slate-800\/50  { background-color: rgba(203,213,225,0.5) !important; }
+html.light-mode .bg-slate-800\/40  { background-color: rgba(203,213,225,0.4) !important; }
+html.light-mode .bg-slate-800      { background-color: #e2e8f0 !important; }
+html.light-mode .bg-slate-950      { background-color: #f8fafc !important; }
+
+/* Navbar */
+html.light-mode header.sticky {
+  background-color: rgba(238,242,255,0.97) !important;
+  border-bottom-color: rgba(99,102,241,0.2) !important;
+}
+
+/* Sidebar */
+html.light-mode aside {
+  background-color: rgba(248,250,255,0.97) !important;
+  border-color: rgba(99,102,241,0.15) !important;
+}
+
+/* Glass card */
+html.light-mode .glass-card {
+  background-color: rgba(255,255,255,0.85) !important;
+  border-color: rgba(99,102,241,0.15) !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07) !important;
+}
+
+/* Borders */
+html.light-mode .border-slate-700,
+html.light-mode .border-slate-700\/50,
+html.light-mode .border-slate-700\/40,
+html.light-mode .border-slate-700\/30,
+html.light-mode .border-slate-800 {
+  border-color: rgba(148,163,184,0.35) !important;
+}
+
+/* Text colors */
+html.light-mode .text-white        { color: #0f172a !important; }
+html.light-mode .text-slate-100    { color: #1e293b !important; }
+html.light-mode .text-slate-200    { color: #334155 !important; }
+html.light-mode .text-slate-300    { color: #475569 !important; }
+html.light-mode .text-slate-400    { color: #64748b !important; }
+html.light-mode .text-slate-500    { color: #94a3b8 !important; }
+
+/* Input fields */
+html.light-mode input,
+html.light-mode textarea,
+html.light-mode select {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+html.light-mode input::placeholder,
+html.light-mode textarea::placeholder { color: #94a3b8 !important; }
+
+/* Starfield subtle in light mode */
+html.light-mode canvas { opacity: 0.03 !important; }
+
+/* Scrollbar in light mode */
+html.light-mode ::-webkit-scrollbar-track { background: #e2e8f0; }
+html.light-mode ::-webkit-scrollbar-thumb { background: #94a3b8; }
