@@ -1,4 +1,4 @@
-import {
+﻿import {
   UserProfile,
   Subject,
   Unit,
@@ -56,6 +56,9 @@ import {
   sbSaveConversation,
   sbSendStudentGroupMessage,
   sbSaveLessonToCloud,
+  sbDeleteLesson,
+  sbSaveSubject,
+  sbAdminUpdateProfile,
 } from './supabaseDb';
 import { syncQueue } from './syncQueue';
 
@@ -953,6 +956,32 @@ export class LocalDatabaseEngine {
     }
   }
 
+  // Multi-device cloud sync: merge subjects from Supabase
+  public syncSubjectsFromCloud(cloudSubjects: Subject[]): void {
+    if (!cloudSubjects || cloudSubjects.length === 0) return;
+    const local = this.get<Subject[]>(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS);
+    const map = new Map<string, Subject>();
+    local.forEach((s) => map.set(s.id, s));
+    cloudSubjects.forEach((cs) => {
+      const existing = map.get(cs.id);
+      map.set(cs.id, existing ? { ...existing, ...cs } : cs);
+    });
+    this.set(STORAGE_KEYS.SUBJECTS, Array.from(map.values()));
+  }
+
+  // Multi-device cloud sync: merge lessons from Supabase
+  public syncLessonsFromCloud(cloudLessons: Lesson[]): void {
+    if (!cloudLessons || cloudLessons.length === 0) return;
+    const local = this.get<Lesson[]>(STORAGE_KEYS.LESSONS, INITIAL_LESSONS);
+    const map = new Map<string, Lesson>();
+    local.forEach((l) => map.set(l.id, l));
+    cloudLessons.forEach((cl) => {
+      const existing = map.get(cl.id);
+      map.set(cl.id, existing ? { ...existing, ...cl } : cl);
+    });
+    this.set(STORAGE_KEYS.LESSONS, Array.from(map.values()));
+  }
+
   public getProfileById(id: string): UserProfile | null {
     const users = this.getProfiles();
     return users.find((u) => u.id === id) || null;
@@ -964,6 +993,7 @@ export class LocalDatabaseEngine {
     if (index === -1) return null;
     users[index] = { ...users[index], ...updates };
     this.set(STORAGE_KEYS.USERS, users);
+    sbAdminUpdateProfile(id, updates).catch((e) => console.warn('[updateProfile] Cloud sync error:', e));
     return users[index];
   }
 
@@ -1032,6 +1062,7 @@ export class LocalDatabaseEngine {
       if (idx !== -1) {
         subs[idx] = { ...subs[idx], ...subject } as Subject;
         this.set(STORAGE_KEYS.SUBJECTS, subs);
+      sbSaveSubject(subs[idx]).catch((e) => console.warn('[saveSubject] Cloud sync error:', e));
         return subs[idx];
       }
     }
@@ -1141,6 +1172,7 @@ export class LocalDatabaseEngine {
   public deleteLesson(id: string): void {
     const lessons = this.get<Lesson[]>(STORAGE_KEYS.LESSONS, INITIAL_LESSONS).filter((l) => l.id !== id);
     this.set(STORAGE_KEYS.LESSONS, lessons);
+    sbDeleteLesson(id).catch((e) => console.warn('[deleteLesson] Cloud sync error:', e));
   }
 
   // --- PROGRESS & NOTES ---

@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // KAWKAB TALTA E3DADI — SUPABASE HYBRID DATA LAYER
 // Provides async Supabase operations with automatic localStorage fallback.
 // All functions are safe to call even if Supabase is not configured.
@@ -793,6 +793,8 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
       convsList,
       allProfiles,
       allAttempts,
+      cloudSubjects,
+      cloudLessons,
     ] = await Promise.all([
       userId ? sbGetProgress(userId) : Promise.resolve([]),
       userId ? sbGetAttempts(userId) : Promise.resolve([]),
@@ -804,6 +806,8 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
       userId ? sbGetConversations(userId) : Promise.resolve([]),
       sbGetAllProfiles(),
       sbGetAllAttempts(),
+      sbGetSubjects(),
+      sbGetLessons(),
     ]);
 
     // Global 1. Real Profiles synchronization across all devices
@@ -968,6 +972,33 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
         const localAll = JSON.parse(localStorage.getItem('kawkab_robo_conversations_v1') || '{}');
         localAll[userId] = convsList;
         localStorage.setItem('kawkab_robo_conversations_v1', JSON.stringify(localAll));
+      } catch {}
+    }
+    // Global 3. Subjects synchronization across all devices
+    if (cloudSubjects && cloudSubjects.length > 0) {
+      try {
+        const local = JSON.parse(localStorage.getItem('kawkab_subjects_v9') || '[]');
+        const map = new Map();
+        local.forEach((s: any) => map.set(s.id, s));
+        cloudSubjects.forEach((cs) => {
+          const existing = map.get(cs.id);
+          map.set(cs.id, existing ? { ...existing, ...cs } : cs);
+        });
+        localStorage.setItem('kawkab_subjects_v9', JSON.stringify(Array.from(map.values())));
+      } catch {}
+    }
+
+    // Global 4. Lessons synchronization across all devices
+    if (cloudLessons && cloudLessons.length > 0) {
+      try {
+        const local = JSON.parse(localStorage.getItem('kawkab_lessons_v9') || '[]');
+        const map = new Map();
+        local.forEach((l: any) => map.set(l.id, l));
+        cloudLessons.forEach((cl) => {
+          const existing = map.get(cl.id);
+          map.set(cl.id, existing ? { ...existing, ...cl } : cl);
+        });
+        localStorage.setItem('kawkab_lessons_v9', JSON.stringify(Array.from(map.values())));
       } catch {}
     }
   } catch (err) {

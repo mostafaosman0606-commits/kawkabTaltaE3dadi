@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+﻿import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, UserRole } from '../types';
 import { db } from './storage';
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -67,6 +67,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
           }
         }
+        // Even if guest or no active user session, hydrate global cloud data (subjects, lessons, leaderboard)
+        syncCloudDataToLocal('').catch(() => {});
         // Fallback: check if local seeded session exists
         const savedUserId = localStorage.getItem(CURRENT_USER_KEY);
         if (savedUserId) {
