@@ -62,6 +62,7 @@ import {
 } from './supabaseDb';
 import { syncQueue } from './syncQueue';
 import { isSupabaseConfigured } from './supabase';
+import { ensureUUID, isValidUUID, KNOWN_SUBJECT_UUIDS } from './uuid';
 
 // ==============================================================================
 // UUID GENERATOR — browser-native, no external dependency
@@ -185,7 +186,7 @@ const INITIAL_PROFILES: UserProfile[] = [
 // ==============================================================================
 const INITIAL_SUBJECTS: Subject[] = [
   {
-    id: 'sub-arabic',
+    id: '782537e8-0db9-47b7-9296-60d7a21f146e',
     slug: 'arabic',
     nameAr: 'اللغة العربية',
     description: 'شرح فروع النحو، القراءة، النصوص الأدبية، والقصة المقررة.',
@@ -196,7 +197,7 @@ const INITIAL_SUBJECTS: Subject[] = [
     isPublished: true,
   },
   {
-    id: 'sub-math',
+    id: '52f516bd-80b0-4294-9b92-56caf8d76ddb',
     slug: 'mathematics',
     nameAr: 'الرياضيات',
     description: 'الجبر والإحصاء، وحساب المثلثات والهندسة التحليلية.',
@@ -207,7 +208,7 @@ const INITIAL_SUBJECTS: Subject[] = [
     isPublished: true,
   },
   {
-    id: 'sub-science',
+    id: 'b0d3c943-541f-42be-915f-ea47a2782f7c',
     slug: 'science',
     nameAr: 'العلوم',
     description: 'القوى والحركة، الطاقة الضوئية، الكون، والتكاثر واستمرار النوع.',
@@ -218,7 +219,7 @@ const INITIAL_SUBJECTS: Subject[] = [
     isPublished: true,
   },
   {
-    id: 'sub-religion',
+    id: '2df71d70-c4a0-402b-b190-2624f32808e1',
     slug: 'islamic-studies',
     nameAr: 'التربية الدينية',
     description: 'القرآن الكريم، العقيدة، العبادات، والشخصيات الإسلامية.',
@@ -229,7 +230,7 @@ const INITIAL_SUBJECTS: Subject[] = [
     isPublished: true,
   },
   {
-    id: 'sub-art',
+    id: '2935bf69-8442-4e99-82e0-bfdcee4c8cda',
     slug: 'art-education',
     nameAr: 'التربية الفنية',
     description: 'التراث الشعبي والقبطي، والتصميم الابتكاري والأشغال الفنية.',
@@ -251,7 +252,7 @@ const INITIAL_SUBJECTS: Subject[] = [
     isPublished: true,
   },
   {
-    id: 'sub-english',
+    id: '3d5b8afd-03f1-4389-8fae-477b14b0b630',
     slug: 'english',
     nameAr: 'اللغة الإنجليزية',
     description: 'منهج New Hello! Prep 3: القواعد والكلمات والمحادثات.',
@@ -262,7 +263,7 @@ const INITIAL_SUBJECTS: Subject[] = [
     isPublished: true,
   },
   {
-    id: 'sub-social',
+    id: '380e2983-5bff-4865-ae4c-82f044c9cfb0',
     slug: 'social-studies',
     nameAr: 'الدراسات الاجتماعية',
     description: 'جغرافية العالم الطبيعية وتاريخ مصر الحديث والمعاصر.',
@@ -273,7 +274,7 @@ const INITIAL_SUBJECTS: Subject[] = [
     isPublished: true,
   },
   {
-    id: 'sub-computer',
+    id: '97225f15-9565-42f6-a06e-a69d2fb8b1ac',
     slug: 'computer-it',
     nameAr: 'الحاسب وتكنولوجيا المعلومات',
     description: 'حل المشكلات وخرائط التدفق ولغة البرمجة Visual Basic.NET.',
@@ -301,22 +302,22 @@ const INITIAL_SUBJECTS: Subject[] = [
 // ==============================================================================
 const INITIAL_UNITS: Unit[] = [
   {
-    id: 'unit-ar-1',
-    subjectId: 'sub-arabic',
+    id: '528704a3-e7a2-4a4f-a170-292a9b8a32d2',
+    subjectId: '782537e8-0db9-47b7-9296-60d7a21f146e',
     title: 'الوحدة الأولى: المشتقات وأعمالها الأدبية',
     orderIndex: 1,
     description: 'اسم الفاعل وصوغه، صيغ المبالغة، واسم المفعول وفق المنهج الوزاري المصري.',
   },
   {
-    id: 'unit-sc-1',
-    subjectId: 'sub-science',
+    id: '64e6de64-4b40-41ab-a213-8eeae2083134',
+    subjectId: 'b0d3c943-541f-42be-915f-ea47a2782f7c',
     title: 'الوحدة الأولى: القوى والحركة',
     orderIndex: 1,
     description: 'الحركة في اتجاه واحد، السرعة القياسية والمتجهة، التمثيل البياني للعجلة المنتظمة.',
   },
   {
-    id: 'unit-ma-1',
-    subjectId: 'sub-math',
+    id: '78ee0491-793f-4e3f-80eb-9ae2c8605d7e',
+    subjectId: '52f516bd-80b0-4294-9b92-56caf8d76ddb',
     title: 'الوحدة الأولى: العلاقات والدوال',
     orderIndex: 1,
     description: 'حاصل الضرب الديكارتي، العلاقات والدوال، ودوال كثيرات الحدود.',
@@ -328,9 +329,9 @@ const INITIAL_UNITS: Unit[] = [
 // ==============================================================================
 const INITIAL_LESSONS: Lesson[] = [
   {
-    id: 'les-arabic-1',
-    unitId: 'unit-ar-1',
-    subjectId: 'sub-arabic',
+    id: 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380111',
+    unitId: '528704a3-e7a2-4a4f-a170-292a9b8a32d2',
+    subjectId: '782537e8-0db9-47b7-9296-60d7a21f146e',
     title: 'اسم الفاعل وصوغه وإعماله',
     orderIndex: 1,
     teacherName: 'أ/ مصطفى عثمان',
@@ -353,9 +354,9 @@ const INITIAL_LESSONS: Lesson[] = [
     isPublished: true,
   },
   {
-    id: 'les-science-1',
-    unitId: 'unit-sc-1',
-    subjectId: 'sub-science',
+    id: 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380121',
+    unitId: '64e6de64-4b40-41ab-a213-8eeae2083134',
+    subjectId: 'b0d3c943-541f-42be-915f-ea47a2782f7c',
     title: 'الحركة في اتجاه واحد والسرعة المنتظمة',
     orderIndex: 1,
     teacherName: 'أ/ محمد محمود',
@@ -374,9 +375,9 @@ const INITIAL_LESSONS: Lesson[] = [
     isPublished: true,
   },
   {
-    id: 'les-math-1',
-    unitId: 'unit-ma-1',
-    subjectId: 'sub-math',
+    id: 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380131',
+    unitId: '78ee0491-793f-4e3f-80eb-9ae2c8605d7e',
+    subjectId: '52f516bd-80b0-4294-9b92-56caf8d76ddb',
     title: 'حاصل الضرب الديكارتي',
     orderIndex: 1,
     teacherName: 'أ/ طارق أحمد',
@@ -401,10 +402,10 @@ const INITIAL_LESSONS: Lesson[] = [
 // ==============================================================================
 const INITIAL_EXAMINATIONS: Examination[] = [
   {
-    id: 'exam-arabic-1',
-    subjectId: 'sub-arabic',
+    id: '89cee155-0747-47bf-aac6-8a2b9b231ef7',
+    subjectId: '782537e8-0db9-47b7-9296-60d7a21f146e',
     subjectName: 'اللغة العربية',
-    unitId: 'unit-ar-1',
+    unitId: '528704a3-e7a2-4a4f-a170-292a9b8a32d2',
     title: 'اختبار الوحدة الأولى: النحو وقواعد اسم الفاعل',
     description: 'اختبار وزاري شامل يحتوي على أسئلة موضوعية وأسئلة مقالية للمراجعة والتصحيح الأكاديمي.',
     timeLimitMinutes: 20,
@@ -419,10 +420,10 @@ const INITIAL_EXAMINATIONS: Examination[] = [
     createdAt: '2026-09-01T10:00:00Z',
   },
   {
-    id: 'exam-science-1',
-    subjectId: 'sub-science',
+    id: '38f2197f-82ee-449e-af10-a17d84872c05',
+    subjectId: 'b0d3c943-541f-42be-915f-ea47a2782f7c',
     subjectName: 'العلوم',
-    unitId: 'unit-sc-1',
+    unitId: '64e6de64-4b40-41ab-a213-8eeae2083134',
     title: 'اختبار شامل: القوى والحركة والسرعة',
     description: 'اختبار تجريبي في مفاهيم السرعة القياسية والمتجهة والعجلة المنتظمة.',
     timeLimitMinutes: 15,
@@ -721,6 +722,19 @@ const INITIAL_ATTEMPTS: ExamAttempt[] = [];
 export class LocalDatabaseEngine {
   constructor() {
     this.ensureInitialized();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('kawkab_cloud_synced', () => {
+        this.clearMemoryCache();
+      });
+    }
+  }
+
+  public clearMemoryCache(key?: string): void {
+    if (key) {
+      this.memoryCache.delete(key);
+    } else {
+      this.memoryCache.clear();
+    }
   }
   private memoryCache = new Map<string, any>();
 
@@ -763,6 +777,26 @@ export class LocalDatabaseEngine {
   }
 
   public ensureInitialized(): void {
+    try {
+      // Auto-migrate any legacy subjects stored in localStorage to canonical UUIDs
+      const rawSubs = localStorage.getItem(STORAGE_KEYS.SUBJECTS);
+      if (rawSubs) {
+        const parsed = JSON.parse(rawSubs);
+        let migrated = false;
+        const cleaned = parsed.map((s: any) => {
+          const canon = KNOWN_SUBJECT_UUIDS[s.id] || KNOWN_SUBJECT_UUIDS[s.slug];
+          if (canon && canon !== s.id) {
+            migrated = true;
+            return { ...s, id: canon };
+          }
+          return s;
+        });
+        if (migrated) {
+          localStorage.setItem(STORAGE_KEYS.SUBJECTS, JSON.stringify(cleaned));
+        }
+      }
+    } catch {}
+
     const currentVersion = localStorage.getItem(STORAGE_KEYS.VERSION);
     if (currentVersion !== 'v9') {
       // Keep existing data and initialize only missing keys below.
@@ -908,6 +942,11 @@ export class LocalDatabaseEngine {
     const map = new Map<string, Subject>();
     local.forEach((s) => map.set(s.id, s));
     cloudSubjects.forEach((cs) => {
+      for (const [key, val] of map.entries()) {
+        if (val.slug === cs.slug && key !== cs.id) {
+          map.delete(key);
+        }
+      }
       const existing = map.get(cs.id);
       map.set(cs.id, existing ? { ...existing, ...cs } : cs);
     });
@@ -1011,8 +1050,9 @@ export class LocalDatabaseEngine {
         return subs[idx];
       }
     }
+    const newSubId = subject.id && isValidUUID(subject.id) ? subject.id : (subject.slug && KNOWN_SUBJECT_UUIDS[subject.slug] ? KNOWN_SUBJECT_UUIDS[subject.slug] : generateUUID());
     const newSub: Subject = {
-      id: `sub-${Date.now()}`,
+      id: newSubId,
       slug: subject.slug || `sub-${Date.now()}`,
       nameAr: subject.nameAr || 'مادة جديدة',
       description: subject.description || '',
@@ -1051,9 +1091,10 @@ export class LocalDatabaseEngine {
         return units[idx];
       }
     }
+    const newUnitId = unit.id && isValidUUID(unit.id) ? unit.id : generateUUID();
     const newUnit: Unit = {
-      id: `unit-${Date.now()}`,
-      subjectId: unit.subjectId || '',
+      id: newUnitId,
+      subjectId: unit.subjectId ? ensureUUID(unit.subjectId) : '',
       title: unit.title || 'وحدة جديدة',
       orderIndex: units.length + 1,
       description: unit.description,
@@ -1091,10 +1132,11 @@ export class LocalDatabaseEngine {
         return lessons[idx];
       }
     }
+    const newLessonId = lesson.id && isValidUUID(lesson.id) ? lesson.id : generateUUID();
     const newLesson: Lesson = {
-      id: `les-${Date.now()}`,
+      id: newLessonId,
       unitId: lesson.unitId || '',
-      subjectId: lesson.subjectId || '',
+      subjectId: lesson.subjectId ? ensureUUID(lesson.subjectId) : '',
       title: lesson.title || 'درس جديد',
       teacherName: lesson.teacherName || 'أستاذ المادة',
       orderIndex: lessons.length + 1,

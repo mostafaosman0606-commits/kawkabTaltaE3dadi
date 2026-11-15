@@ -5,12 +5,15 @@
 // ==============================================================================
 
 import { supabase, isSupabaseConfigured } from './supabase';
-import { ensureUUID, isValidUUID } from './uuid';
-export { ensureUUID, isValidUUID, UUID_REGEX } from './uuid';
+import { ensureUUID, isValidUUID, normalizeUUIDOrNull } from './uuid';
+export { ensureUUID, isValidUUID, normalizeUUIDOrNull, UUID_REGEX } from './uuid';
 
 function requireUUIDFields(operation: string, fields: Record<string, string | null | undefined>): boolean {
   const invalidFields = Object.entries(fields)
-    .filter(([, value]) => value != null && !isValidUUID(value))
+    .filter(([, value]) => {
+      if (value == null || value === '') return false;
+      return !isValidUUID(value);
+    })
     .map(([field]) => field);
   if (invalidFields.length > 0) {
     console.warn(`[${operation}] Skipping Supabase request; invalid UUID field(s): ${invalidFields.join(', ')}`);
@@ -255,10 +258,19 @@ export async function sbGetSubjects(): Promise<Subject[]> {
 
 export async function sbSaveSubject(subject: Partial<Subject>): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
-  if (!requireUUIDFields('sbSaveSubject', { id: subject.id })) return false;
   try {
-    const row: Record<string, unknown> = { slug: subject.slug, name_ar: subject.nameAr, description: subject.description, icon: subject.icon, color_primary: subject.colorPrimary, color_secondary: subject.colorSecondary, order_index: subject.orderIndex, is_published: subject.isPublished ?? true };
-    if (subject.id) row['id'] = subject.id;
+    const subjectId = ensureUUID(subject.id || subject.slug);
+    const row: Record<string, unknown> = {
+      id: subjectId,
+      slug: subject.slug,
+      name_ar: subject.nameAr,
+      description: subject.description,
+      icon: subject.icon,
+      color_primary: subject.colorPrimary,
+      color_secondary: subject.colorSecondary,
+      order_index: subject.orderIndex,
+      is_published: subject.isPublished ?? true,
+    };
     Object.keys(row).forEach((k) => row[k] === undefined && delete row[k]);
     const { error } = await supabase.from('subjects').upsert(row, { onConflict: 'id' });
     if (error) { console.warn('[sbSaveSubject]', error.message); return false; }
@@ -271,10 +283,11 @@ export async function sbSaveSubject(subject: Partial<Subject>): Promise<boolean>
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetLessons(subjectId?: string): Promise<Lesson[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
-  if (!requireUUIDFields('sbGetLessons', { subjectId })) return [];
+  const normalizedSubjectId = subjectId ? ensureUUID(subjectId) : undefined;
+  if (!requireUUIDFields('sbGetLessons', { subjectId: normalizedSubjectId })) return [];
   try {
     let query = supabase.from('lessons').select('*').order('order_index');
-    if (subjectId) query = query.eq('subject_id', subjectId);
+    if (normalizedSubjectId) query = query.eq('subject_id', normalizedSubjectId);
     const { data, error } = await query;
     if (error || !data) return [];
     return data.map(mapLesson);
@@ -350,11 +363,32 @@ export async function sbGetAllAttempts(): Promise<ExamAttempt[]> {
 
 export async function sbSaveAttempt(attempt: ExamAttempt): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
-  if (!requireUUIDFields('sbSaveAttempt', { examId: attempt.examId, studentId: attempt.studentId })) return false;
   try {
     const attemptId = ensureUUID(attempt.id);
+    const examId = ensureUUID(attempt.examId);
+    const studentId = ensureUUID(attempt.studentId);
     attempt.id = attemptId;
-    const { error } = await supabase.from('exam_attempts').upsert({ id: attemptId, exam_id: attempt.examId, student_id: attempt.studentId, subject_name: attempt.subjectName ?? null, started_at: attempt.startedAt, submitted_at: attempt.submittedAt ?? null, time_spent_seconds: attempt.timeSpentSeconds, auto_score: attempt.autoScore, essay_score: attempt.essayScore, total_score: attempt.totalScore, max_score: attempt.maxScore, percentage: attempt.percentage, passed: attempt.passed, status: attempt.status, violation_count: attempt.violationCount, violation_logs: attempt.violationLogs, is_provisional: attempt.isProvisional }, { onConflict: 'id' });
+    attempt.examId = examId;
+    attempt.studentId = studentId;
+    const { error } = await supabase.from('exam_attempts').upsert({
+      id: attemptId,
+      exam_id: examId,
+      student_id: studentId,
+      subject_name: attempt.subjectName ?? null,
+      started_at: attempt.startedAt,
+      submitted_at: attempt.submittedAt ?? null,
+      time_spent_seconds: attempt.timeSpentSeconds,
+      auto_score: attempt.autoScore,
+      essay_score: attempt.essayScore,
+      total_score: attempt.totalScore,
+      max_score: attempt.maxScore,
+      percentage: attempt.percentage,
+      passed: attempt.passed,
+      status: attempt.status,
+      violation_count: attempt.violationCount,
+      violation_logs: attempt.violationLogs,
+      is_provisional: attempt.isProvisional
+    }, { onConflict: 'id' });
     if (error) { console.warn('[sbSaveAttempt]', error.message); return false; }
     return true;
   } catch { return false; }
@@ -1104,6 +1138,11 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
         localStorage.setItem('kawkab_lessons_v9', JSON.stringify(Array.from(map.values())));
       } catch {}
     }
+
+    // Dispatch global cloud sync event so in-memory cache and UI components refresh
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('kawkab_cloud_synced', { detail: { timestamp: Date.now() } }));
+    }
   } catch (err) {
     console.warn('[syncCloudDataToLocal] Failed to hydrate cloud data:', err);
   }
@@ -1204,13 +1243,15 @@ export async function sbDeleteLessonImage(imageUrl: string): Promise<boolean> {
  */
 export async function sbSaveLessonToCloud(lesson: Lesson): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
-  if (!requireUUIDFields('sbSaveLessonToCloud', { subjectId: lesson.subjectId, unitId: lesson.unitId })) return false;
   try {
-    const isCustomUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lesson.id);
+    const canonicalSubjectId = ensureUUID(lesson.subjectId);
+    const canonicalUnitId = normalizeUUIDOrNull(lesson.unitId);
+    const canonicalLessonId = ensureUUID(lesson.id);
+
     const row = {
-      ...(isCustomUuid ? { id: lesson.id } : {}),
-      unit_id: lesson.unitId || null,
-      subject_id: lesson.subjectId,
+      id: canonicalLessonId,
+      unit_id: canonicalUnitId,
+      subject_id: canonicalSubjectId,
       title: lesson.title,
       order_index: lesson.orderIndex || 0,
       content_html: lesson.contentHtml || '',
@@ -1224,7 +1265,7 @@ export async function sbSaveLessonToCloud(lesson: Lesson): Promise<boolean> {
       is_published: lesson.isPublished ?? true,
     };
 
-    const { error } = await supabase.from('lessons').upsert(row);
+    const { error } = await supabase.from('lessons').upsert(row, { onConflict: 'id' });
     if (error) {
       console.warn('[sbSaveLessonToCloud] Error upserting lesson:', error.message);
       return false;

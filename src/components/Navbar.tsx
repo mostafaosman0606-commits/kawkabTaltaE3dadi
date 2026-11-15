@@ -13,11 +13,15 @@ import {
   CheckCircle2,
   Info,
   Calendar,
+  Cloud,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../services/authContext';
 import { db } from '../services/storage';
 import { ThemeLanguageToggle } from './ThemeLanguageToggle';
 import { requestNotificationPermission, scheduleStudyReminder, updateLastActivity } from '../services/notifications';
+import { syncCloudDataToLocal } from '../services/supabaseDb';
+import { isSupabaseConfigured } from '../services/supabase';
 import type { Notification } from '../types';
 
 interface NavbarProps {
@@ -35,6 +39,22 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() => {
     return ('Notification' in window) ? Notification.permission : 'denied';
   });
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncSuccess, setSyncSuccess] = useState(false);
+
+  const handleManualSync = async () => {
+    if (isSyncing || !isSupabaseConfigured()) return;
+    setIsSyncing(true);
+    try {
+      await syncCloudDataToLocal(user?.id || '');
+      setSyncSuccess(true);
+      setTimeout(() => setSyncSuccess(false), 2500);
+    } catch {
+      // ignore
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Update last activity & schedule reminder check on mount
   useEffect(() => {
@@ -144,6 +164,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               </div>
             </>
+          )}
+
+          {/* Cloud Sync Button */}
+          {isSupabaseConfigured() && (
+            <button
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                syncSuccess
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                  : 'bg-slate-900/80 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-cyan-300'
+              }`}
+              title="المزامنة السحابية الفورية مع Supabase"
+            >
+              <Cloud className={`w-3.5 h-3.5 ${syncSuccess ? 'text-emerald-400' : 'text-cyan-400'}`} />
+              <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-cyan-400' : 'text-slate-400'}`} />
+              <span className="hidden sm:inline text-[11px]">
+                {syncSuccess ? 'تمت المزامنة' : isSyncing ? 'جارٍ المزامنة...' : 'مزامنة'}
+              </span>
+            </button>
           )}
 
           {/* Theme & Language Toggle */}
