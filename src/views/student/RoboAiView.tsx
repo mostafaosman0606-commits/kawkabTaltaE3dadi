@@ -21,7 +21,7 @@ import {
 import { db } from '../../services/storage';
 import { useAuth } from '../../services/authContext';
 import { askRoboServer } from '../../services/aiService';
-import { RoboMessage, RoboConversation } from '../../types';
+import { RoboMessage, RoboConversation, UserProfile } from '../../types';
 
 interface RoboAiViewProps {
   onUpgradeClick?: () => void;
@@ -29,6 +29,17 @@ interface RoboAiViewProps {
 
 export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   const { user } = useAuth();
+  const effectiveUser: UserProfile = user || {
+    id: 'guest-user',
+    email: 'guest@kawkab.local',
+    fullName: 'طالب زائر',
+    role: 'student',
+    subscriptionTier: 'free',
+    subscriptionStatus: 'active',
+    isSuspended: false,
+    aiQuestionsUsedThisMonth: 0,
+    createdAt: new Date().toISOString(),
+  };
 
   // Conversations State
   const [conversations, setConversations] = useState<RoboConversation[]>([]);
@@ -152,12 +163,12 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
 
   // Load conversations on mount & user change
   useEffect(() => {
-    if (user) {
-      const convs = db.getRoboConversations(user.id);
+    if (effectiveUser) {
+      const convs = db.getRoboConversations(effectiveUser.id);
       setConversations(convs);
 
       // Restore active conversation from localStorage or default to first
-      const savedActiveId = localStorage.getItem(`kawkab_active_robo_conv_${user.id}`);
+      const savedActiveId = localStorage.getItem(`kawkab_active_robo_conv_${effectiveUser.id}`);
       const found = convs.find((c) => c.id === savedActiveId);
       if (found) {
         setActiveConversationId(found.id);
@@ -165,14 +176,14 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
         setActiveConversationId(convs[0].id);
       }
     }
-  }, [user]);
+  }, [effectiveUser.id]);
 
   // Persist active conversation id
   useEffect(() => {
     if (user && activeConversationId) {
-      localStorage.setItem(`kawkab_active_robo_conv_${user.id}`, activeConversationId);
+      localStorage.setItem(`kawkab_active_robo_conv_${effectiveUser.id}`, activeConversationId);
     }
-  }, [user, activeConversationId]);
+  }, [effectiveUser.id, activeConversationId]);
 
   // Find active conversation
   const activeConversation: RoboConversation | undefined =
@@ -186,15 +197,15 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   }, [messages, isTyping]);
 
   // Quota
-  const quota = user ? db.getRoboDailyUsage(user.id) : { limit: 20, used: 0, remaining: 20 };
+  const quota = effectiveUser ? db.getRoboDailyUsage(effectiveUser.id) : { limit: 20, used: 0, remaining: 20 };
   const limit = quota.limit;
   const used = quota.used;
   const remaining = quota.remaining;
 
   // Refresh conversations helper
   const reloadConversations = (preferredActiveId?: string) => {
-    if (!user) return;
-    const fresh = db.getRoboConversations(user.id);
+    if (!effectiveUser) return;
+    const fresh = db.getRoboConversations(effectiveUser.id);
     setConversations(fresh);
     if (preferredActiveId) {
       setActiveConversationId(preferredActiveId);
@@ -205,8 +216,8 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
 
   // Create new conversation
   const handleNewConversation = () => {
-    if (!user) return;
-    const newConv = db.createRoboConversation(user.id);
+    if (!effectiveUser) return;
+    const newConv = db.createRoboConversation(effectiveUser.id);
     reloadConversations(newConv.id);
     setIsConvMenuOpen(false);
   };
@@ -214,11 +225,11 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   // Delete conversation
   const handleDeleteConversation = (e: React.MouseEvent, convId: string) => {
     e.stopPropagation();
-    if (!user) return;
+    if (!effectiveUser) return;
     const target = conversations.find((c) => c.id === convId);
     const title = target?.title || 'هذه المحادثة';
     if (window.confirm(`هل أنت متأكد من حذف "${title}"؟`)) {
-      const remainingList = db.deleteRoboConversation(user.id, convId);
+      const remainingList = db.deleteRoboConversation(effectiveUser.id, convId);
       setConversations(remainingList);
       if (activeConversationId === convId) {
         setActiveConversationId(remainingList[0]?.id || '');
@@ -235,15 +246,15 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
 
   // Save rename
   const handleSaveRename = (convId: string) => {
-    if (!user) return;
-    db.updateRoboConversationTitle(user.id, convId, editingTitle);
+    if (!effectiveUser) return;
+    db.updateRoboConversationTitle(effectiveUser.id, convId, editingTitle);
     setEditingConvId(null);
     reloadConversations(convId);
   };
 
   // Send message with Memory (passing previous messages)
   const handleSendMessage = async () => {
-    if (!user || (!inputText.trim() && !attachmentPreview) || isTyping) return;
+    if (!effectiveUser || (!inputText.trim() && !attachmentPreview) || isTyping) return;
 
     const isPdfAttachment = Boolean(
       attachmentName?.toLowerCase().endsWith('.pdf') ||
@@ -266,13 +277,13 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     // Ensure we have an active conversation
     let targetConvId = activeConversation?.id;
     if (!targetConvId) {
-      const created = db.createRoboConversation(user.id);
+      const created = db.createRoboConversation(effectiveUser.id);
       targetConvId = created.id;
     }
 
     // 1. Immediately save user message to active conversation
     const { quotaExceeded } = db.addUserMessageToConversation(
-      user.id,
+      effectiveUser.id,
       targetConvId,
       userText,
       savedAttach,
@@ -285,7 +296,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     if (quotaExceeded) {
       setShowQuotaWarning(true);
       db.addAssistantMessageToConversation(
-        user.id,
+        effectiveUser.id,
         targetConvId,
         'عذراً يا بطل! لقد استهلكت رصيدك اليومي من أسئلة روبو. يتجدد الرصيد تلقائياً كل يوم لدعمك المستمر في المذاكرة! 🚀'
       );
@@ -300,9 +311,9 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
       // 3. Ask Gemini AI with FULL conversation history memory!
       const currentHistory = activeConversation?.messages || [];
       const serverRes = await askRoboServer(
-        user.id,
+        effectiveUser.id,
         userText,
-        user.subscriptionTier,
+        effectiveUser.subscriptionTier,
         savedAttach,
         currentHistory
       );
@@ -314,11 +325,11 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
       const reply =
         serverRes?.reply ||
         'أهلاً بك يا بطل! أنا معك دائماً لشرح وفهم منهج الشهادة الإعدادية خطوة بخطوة 🌟.';
-      db.addAssistantMessageToConversation(user.id, targetConvId, reply);
+      db.addAssistantMessageToConversation(effectiveUser.id, targetConvId, reply);
     } catch (err) {
       console.warn('Gemini chat error:', err);
       db.addAssistantMessageToConversation(
-        user.id,
+        effectiveUser.id,
         targetConvId,
         'أهلاً بك يا بطل! استخرج المعطيات والمفهوم الرئيسي واكتب لي الخطوة الأولى وسنراجعها سوياً خطوة بخطوة! 🌟'
       );
