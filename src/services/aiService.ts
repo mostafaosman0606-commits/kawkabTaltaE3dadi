@@ -63,8 +63,10 @@ export async function askRoboServer(
   attachmentBase64?: string,
   history: RoboMessage[] = []
 ): Promise<RoboResponse> {
-  // 1. Primary Secure Gateway: Supabase Edge Function with Server-Side Secrets & Quota
-  if (isSupabaseConfigured() && supabase) {
+  // 1. Direct Gemini Call (Fast, reliable, and active with user API key)
+  const geminiKey = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
+  // Edge Function fallback only if no direct key is configured
+  if (!geminiKey && isSupabaseConfigured() && supabase) {
     try {
       const { data, error } = await supabase.functions.invoke('robo-tutor', {
         body: {
