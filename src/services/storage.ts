@@ -59,10 +59,15 @@ import {
   sbDeleteLesson,
   sbSaveSubject,
   sbAdminUpdateProfile,
+  sbSaveUnitToCloud,
+  sbDeleteUnit,
+  sbSaveExaminationToCloud,
+  sbDeleteExamination,
+  sbSaveQuestionToCloud,
 } from './supabaseDb';
 import { syncQueue } from './syncQueue';
 import { isSupabaseConfigured } from './supabase';
-import { ensureUUID, isValidUUID, KNOWN_SUBJECT_UUIDS } from './uuid';
+import { ensureUUID, isValidUUID, KNOWN_SUBJECT_UUIDS, normalizeUUIDOrNull } from './uuid';
 
 // ==============================================================================
 // UUID GENERATOR — browser-native, no external dependency
@@ -804,7 +809,22 @@ export class LocalDatabaseEngine {
     }
 
     if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
-      this.set(STORAGE_KEYS.USERS, INITIAL_PROFILES);
+      if (isSupabaseConfigured()) {
+        this.set(STORAGE_KEYS.USERS, []);
+      } else {
+        this.set(STORAGE_KEYS.USERS, INITIAL_PROFILES);
+      }
+    } else if (isSupabaseConfigured()) {
+      try {
+        const rawUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+        if (rawUsers) {
+          const parsed = JSON.parse(rawUsers);
+          const cleaned = parsed.filter((u: any) => u.id && isValidUUID(u.id));
+          if (cleaned.length !== parsed.length) {
+            this.set(STORAGE_KEYS.USERS, cleaned);
+          }
+        }
+      } catch {}
     }
     if (!localStorage.getItem(STORAGE_KEYS.SUBJECTS)) {
       this.set(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS);
@@ -1088,6 +1108,7 @@ export class LocalDatabaseEngine {
       if (idx !== -1) {
         units[idx] = { ...units[idx], ...unit } as Unit;
         this.set(STORAGE_KEYS.UNITS, units);
+        sbSaveUnitToCloud(units[idx] as Unit).catch((e) => console.warn('[saveUnit] Cloud sync error:', e));
         return units[idx];
       }
     }
@@ -1101,12 +1122,14 @@ export class LocalDatabaseEngine {
     };
     units.push(newUnit);
     this.set(STORAGE_KEYS.UNITS, units);
+    sbSaveUnitToCloud(newUnit).catch((e) => console.warn('[saveUnit] Cloud sync error:', e));
     return newUnit;
   }
 
   public deleteUnit(id: string): void {
     const units = this.get<Unit[]>(STORAGE_KEYS.UNITS, INITIAL_UNITS).filter((u) => u.id !== id);
     this.set(STORAGE_KEYS.UNITS, units);
+    sbDeleteUnit(id).catch((e) => console.warn('[deleteUnit] Cloud sync error:', e));
   }
 
   public getLessons(subjectId?: string, unitId?: string): Lesson[] {
@@ -1287,13 +1310,15 @@ export class LocalDatabaseEngine {
       if (idx !== -1) {
         exams[idx] = { ...exams[idx], ...exam } as Examination;
         this.set(STORAGE_KEYS.EXAMS, exams);
+        sbSaveExaminationToCloud(exams[idx] as Examination).catch((e) => console.warn('[saveExam] Cloud sync error:', e));
         return exams[idx];
       }
     }
+    const newExamId = exam.id && isValidUUID(exam.id) ? exam.id : generateUUID();
     const newExam: Examination = {
-      id: `exam-${Date.now()}`,
-      subjectId: exam.subjectId || '',
-      unitId: exam.unitId,
+      id: newExamId,
+      subjectId: exam.subjectId ? ensureUUID(exam.subjectId) : '',
+      unitId: exam.unitId ? ensureUUID(exam.unitId) : undefined,
       title: exam.title || 'امتحان جديد',
       description: exam.description || '',
       timeLimitMinutes: exam.timeLimitMinutes || 20,
@@ -1309,12 +1334,14 @@ export class LocalDatabaseEngine {
     };
     exams.push(newExam);
     this.set(STORAGE_KEYS.EXAMS, exams);
+    sbSaveExaminationToCloud(newExam).catch((e) => console.warn('[saveExam] Cloud sync error:', e));
     return newExam;
   }
 
   public deleteExamination(id: string): void {
     const exams = this.get<Examination[]>(STORAGE_KEYS.EXAMS, INITIAL_EXAMINATIONS).filter((e) => e.id !== id);
     this.set(STORAGE_KEYS.EXAMS, exams);
+    sbDeleteExamination(id).catch((e) => console.warn('[deleteExam] Cloud sync error:', e));
   }
 
   public getQuestionsByExam(examId: string): Question[] {

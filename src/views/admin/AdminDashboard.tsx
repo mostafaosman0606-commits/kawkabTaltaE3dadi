@@ -114,6 +114,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [refreshKey, setRefreshKey] = useState(0);
   const forceRefresh = () => setRefreshKey((k) => k + 1);
 
+  useEffect(() => {
+    const handleSync = () => forceRefresh();
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, []);
+
   // Always reset scroll to top on tab change
   useEffect(() => {
     window.scrollTo(0, 0);

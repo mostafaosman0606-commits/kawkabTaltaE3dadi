@@ -26,6 +26,7 @@ import type {
   UserProfile, UserRole, SubscriptionTier, SubscriptionStatus,
   Subject, Lesson, LessonProgress, ExamAttempt, Certificate,
   LiveChallenge, Notification, RoboConversation, RoboMessage,
+  Unit, Examination, Question,
   Announcement, StudentBadge, StudentGoal, DailyStreak,
   Flashcard, SubscriptionRequest, TeacherAssignment,
   StudentGroupMessage,
@@ -317,6 +318,233 @@ export async function sbDeleteLesson(lessonId: string): Promise<boolean> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNITS
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sbGetUnits(subjectId?: string): Promise<Unit[]> {
+  if (!isSupabaseConfigured() || !supabase) return [];
+  const normalizedSubjectId = subjectId ? ensureUUID(subjectId) : undefined;
+  try {
+    let query = supabase.from('units').select('*').order('order_index');
+    if (normalizedSubjectId) query = query.eq('subject_id', normalizedSubjectId);
+    const { data, error } = await query;
+    if (error || !data) return [];
+    return data.map((u: any) => ({
+      id: u.id,
+      subjectId: u.subject_id,
+      title: u.title,
+      orderIndex: u.order_index,
+      description: u.description || undefined,
+    }));
+  } catch (e) {
+    console.warn('[sbGetUnits]', e);
+    return [];
+  }
+}
+
+export async function sbSaveUnitToCloud(unit: Partial<Unit> & { subjectId: string; title: string }): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase) return false;
+  try {
+    const row = {
+      id: unit.id ? ensureUUID(unit.id) : undefined,
+      subject_id: ensureUUID(unit.subjectId),
+      title: unit.title,
+      order_index: unit.orderIndex || 1,
+      description: unit.description || null,
+    };
+    const { error } = await supabase.from('units').upsert(row, { onConflict: 'id' });
+    if (error) {
+      console.warn('[sbSaveUnitToCloud]', error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[sbSaveUnitToCloud]', e);
+    return false;
+  }
+}
+
+export async function sbDeleteUnit(unitId: string): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase) return false;
+  try {
+    const { error } = await supabase.from('units').delete().eq('id', ensureUUID(unitId));
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXAMINATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sbGetExaminations(subjectId?: string): Promise<Examination[]> {
+  if (!isSupabaseConfigured() || !supabase) return [];
+  const normalizedSubjectId = subjectId ? ensureUUID(subjectId) : undefined;
+  try {
+    let query = supabase.from('examinations').select('*').order('created_at', { ascending: false });
+    if (normalizedSubjectId) query = query.eq('subject_id', normalizedSubjectId);
+    const { data, error } = await query;
+    if (error || !data) return [];
+    return data.map((e: any) => ({
+      id: e.id,
+      subjectId: e.subject_id,
+      unitId: e.unit_id || undefined,
+      title: e.title,
+      description: e.description || '',
+      timeLimitMinutes: e.time_limit_minutes || 20,
+      passingPercentage: e.passing_percentage || 50,
+      randomizeQuestions: e.randomize_questions ?? true,
+      randomizeAnswers: e.randomize_answers ?? true,
+      antiCheatingTabSwitch: true,
+      maxAttempts: e.max_attempts || 3,
+      isPublished: e.is_published ?? true,
+      allowsCertificate: e.allows_certificate ?? true,
+      examType: e.exam_type || 'official',
+      createdAt: e.created_at,
+    }));
+  } catch (e) {
+    console.warn('[sbGetExaminations]', e);
+    return [];
+  }
+}
+
+export async function sbSaveExaminationToCloud(exam: Partial<Examination> & { subjectId: string; title: string }): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase) return false;
+  try {
+    const row = {
+      id: exam.id ? ensureUUID(exam.id) : undefined,
+      subject_id: ensureUUID(exam.subjectId),
+      unit_id: normalizeUUIDOrNull(exam.unitId),
+      title: exam.title,
+      description: exam.description || '',
+      time_limit_minutes: exam.timeLimitMinutes || 20,
+      passing_percentage: exam.passingPercentage || 50,
+      randomize_questions: exam.randomizeQuestions ?? true,
+      randomize_answers: exam.randomizeAnswers ?? true,
+      max_attempts: exam.maxAttempts || 3,
+      is_published: exam.isPublished ?? true,
+      allows_certificate: exam.allowsCertificate ?? true,
+      exam_type: exam.examType || 'official',
+    };
+    const { error } = await supabase.from('examinations').upsert(row, { onConflict: 'id' });
+    if (error) {
+      console.warn('[sbSaveExaminationToCloud]', error.message);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.warn('[sbSaveExaminationToCloud]', e);
+    return false;
+  }
+}
+
+export async function sbDeleteExamination(examId: string): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase) return false;
+  try {
+    const { error } = await supabase.from('examinations').delete().eq('id', ensureUUID(examId));
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUESTIONS & CHOICES
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sbGetQuestions(examId?: string): Promise<Question[]> {
+  if (!isSupabaseConfigured() || !supabase) return [];
+  try {
+    let query = supabase.from('questions').select('*, answer_choices(*)').order('order_index');
+    if (examId) query = query.eq('exam_id', ensureUUID(examId));
+    const { data, error } = await query;
+    if (error || !data) return [];
+    return data.map((q: any) => ({
+      id: q.id,
+      examId: q.exam_id,
+      questionText: q.question_text,
+      questionType: q.question_type || 'mcq',
+      points: Number(q.points) || 1.0,
+      orderIndex: q.order_index || 1,
+      explanation: q.explanation || undefined,
+      imageUrl: q.image_url || undefined,
+      choices: (q.answer_choices || []).map((c: any) => ({
+        id: c.id,
+        questionId: c.question_id,
+        choiceText: c.choice_text,
+        isCorrect: c.is_correct ?? false,
+        orderIndex: c.order_index || 1,
+      })),
+    }));
+  } catch (e) {
+    console.warn('[sbGetQuestions]', e);
+    return [];
+  }
+}
+
+export async function sbSaveQuestionToCloud(question: Partial<Question> & { examId: string; questionText: string }): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase) return false;
+  try {
+    const qId = ensureUUID(question.id);
+    const examId = ensureUUID(question.examId);
+    const qRow = {
+      id: qId,
+      exam_id: examId,
+      question_text: question.questionText,
+      question_type: question.questionType || 'mcq',
+      points: question.points || 1.0,
+      order_index: question.orderIndex || 1,
+      explanation: question.explanation || null,
+      image_url: question.imageUrl || null,
+    };
+    const { error: qError } = await supabase.from('questions').upsert(qRow, { onConflict: 'id' });
+    if (qError) {
+      console.warn('[sbSaveQuestionToCloud]', qError.message);
+      return false;
+    }
+    if (question.choices && question.choices.length > 0) {
+      const choiceRows = question.choices.map((c) => ({
+        id: ensureUUID(c.id),
+        question_id: qId,
+        choice_text: c.choiceText,
+        is_correct: c.isCorrect ?? false,
+        order_index: c.orderIndex || 1,
+      }));
+      await supabase.from('answer_choices').upsert(choiceRows, { onConflict: 'id' });
+    }
+    return true;
+  } catch (e) {
+    console.warn('[sbSaveQuestionToCloud]', e);
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REALTIME MULTI-TABLE SYNC
+// ─────────────────────────────────────────────────────────────────────────────
+export function setupSupabaseRealtimeSync(onSync: () => void): () => void {
+  if (!isSupabaseConfigured() || !supabase) return () => {};
+  try {
+    const channel = supabase
+      .channel('kawkab_realtime_sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'subjects' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lessons' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'units' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'examinations' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_attempts' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, onSync)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  } catch {
+    return () => {};
+  }
+}
+
 // LESSON PROGRESS
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetProgress(studentId: string): Promise<LessonProgress[]> {
@@ -932,6 +1160,10 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
       allAttempts,
       cloudSubjects,
       cloudLessons,
+      cloudUnits,
+      cloudExams,
+      cloudQuestions,
+      cloudAnnouncements,
     ] = await Promise.all([
       userId ? sbGetProgress(userId) : Promise.resolve([]),
       userId ? sbGetAttempts(userId) : Promise.resolve([]),
@@ -945,7 +1177,31 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
       sbGetAllAttempts(),
       sbGetSubjects(),
       sbGetLessons(),
+      sbGetUnits(),
+      sbGetExaminations(),
+      sbGetQuestions(),
+      sbGetAnnouncements(),
     ]);
+
+    // Save cloud units
+    if (cloudUnits && cloudUnits.length > 0) {
+      try { localStorage.setItem('kawkab_units_v9', JSON.stringify(cloudUnits)); } catch {}
+    }
+
+    // Save cloud examinations
+    if (cloudExams && cloudExams.length > 0) {
+      try { localStorage.setItem('kawkab_exams_v9', JSON.stringify(cloudExams)); } catch {}
+    }
+
+    // Save cloud questions
+    if (cloudQuestions && cloudQuestions.length > 0) {
+      try { localStorage.setItem('kawkab_questions_v9', JSON.stringify(cloudQuestions)); } catch {}
+    }
+
+    // Save cloud announcements
+    if (cloudAnnouncements && cloudAnnouncements.length > 0) {
+      try { localStorage.setItem('kawkab_announcements_v9', JSON.stringify(cloudAnnouncements)); } catch {}
+    }
 
     // Global 1. Real Profiles synchronization across all devices
     if (allProfiles && allProfiles.length > 0) {

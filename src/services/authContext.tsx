@@ -10,6 +10,7 @@ import {
   sbGetProfile,
   sbUpsertProfile,
   syncCloudDataToLocal,
+  setupSupabaseRealtimeSync,
 } from './supabaseDb';
 
 interface AuthContextType {
@@ -132,6 +133,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
+  }, [user?.id]);
+
+  // Realtime & Periodic Cross-Device Synchronization
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    // 1. Subscribe to Postgres Realtime changes across all tables
+    const cleanupRealtime = setupSupabaseRealtimeSync(() => {
+      syncCloudDataToLocal(user?.id || '').catch(() => {});
+    });
+
+    // 2. Periodic background sync every 25 seconds
+    const interval = setInterval(() => {
+      syncCloudDataToLocal(user?.id || '').catch(() => {});
+    }, 25000);
+
+    return () => {
+      cleanupRealtime();
+      clearInterval(interval);
+    };
   }, [user?.id]);
 
   // Supabase auth state listener (only when Supabase is configured)

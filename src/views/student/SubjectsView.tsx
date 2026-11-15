@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BookOpen,
   Search,
@@ -18,6 +18,13 @@ interface SubjectsViewProps {
 
 export const SubjectsView: React.FC<SubjectsViewProps> = ({ onSelectSubject }) => {
   const { user } = useAuth();
+  const [, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const handleSync = () => setRefreshKey((k) => k + 1);
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const subjects = db.getSubjects();
   const progress = user ? db.getLessonProgress(user.id) : [];

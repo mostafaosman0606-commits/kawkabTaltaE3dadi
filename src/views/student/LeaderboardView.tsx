@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Trophy,
   Medal,
@@ -16,6 +16,13 @@ import { EGYPT_GOVERNORATES } from '../../constants/governorates';
 
 export const LeaderboardView: React.FC = () => {
   const { user } = useAuth();
+  const [, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const handleSync = () => setRefreshKey((k) => k + 1);
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, []);
   const [selectedGov, setSelectedGov] = useState<string>('all');
   const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'monthly' | 'weekly'>('all');
   const [searchTerm, setSearchTerm] = useState('');
