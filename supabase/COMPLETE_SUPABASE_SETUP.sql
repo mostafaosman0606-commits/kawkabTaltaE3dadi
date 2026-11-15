@@ -1249,10 +1249,21 @@ REVOKE ALL ON FUNCTION public.is_teacher() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.is_teacher_of_subject(UUID) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.set_user_as_admin(TEXT) FROM PUBLIC;
 
-GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.is_teacher() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.is_teacher_of_subject(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_my_role() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.is_teacher() TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.is_teacher_of_subject(UUID) TO anon, authenticated;
+
+-- Ensure schema & table access for anon and authenticated (protected by RLS)
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON ROUTINES TO anon, authenticated;
+
+NOTIFY pgrst, 'reload schema';
 GRANT EXECUTE ON FUNCTION public.set_user_as_admin(TEXT) TO postgres, service_role;
 
 -- ============================================================

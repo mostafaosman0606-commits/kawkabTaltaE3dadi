@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── REFRESH USER ──────────────────────────────────────────────────────────
   const refreshUser = () => {
     if (isSupabaseConfigured()) {
-      // Async: check active Supabase session first, then fall back to localStorage
+      // Async: authenticate from Supabase in production; local sessions are dev-only.
       sbGetSession().then(async (userId) => {
         if (userId) {
           const profile = await sbGetProfile(userId);
@@ -66,17 +66,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             syncCloudDataToLocal(userId).catch(() => {});
             return;
           }
+          await sbSignOut();
         }
         // Even if guest or no active user session, hydrate global cloud data (subjects, lessons, leaderboard)
         syncCloudDataToLocal('').catch(() => {});
-        // Fallback: check if local seeded session exists
-        const savedUserId = localStorage.getItem(CURRENT_USER_KEY);
-        if (savedUserId) {
-          const found = db.getProfileById(savedUserId);
-          if (found && !found.isSuspended) {
-            setUser(found);
-            setIsLoading(false);
-            return;
+        // Local sessions are for development only; never treat localStorage as proof of identity in production.
+        if (import.meta.env.DEV) {
+          const savedUserId = localStorage.getItem(CURRENT_USER_KEY);
+          if (savedUserId) {
+            const found = db.getProfileById(savedUserId);
+            if (found && !found.isSuspended) {
+              setUser(found);
+              setIsLoading(false);
+              return;
+            }
           }
         }
         // No valid session — clear
@@ -87,7 +90,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Pure localStorage mode
+    if (!import.meta.env.DEV) {
+      localStorage.removeItem(CURRENT_USER_KEY);
+      setUser(null);
+      setIsLoading(false);
+      return;
+    }
+
+    // Development-only localStorage mode
     let savedUserId = localStorage.getItem(CURRENT_USER_KEY);
     if (!savedUserId) {
       savedUserId = localStorage.getItem('kawkab_current_user_id_v8');
@@ -162,24 +172,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           syncCloudDataToLocal(userId).catch(() => {});
           return { success: true };
         }
+        await sbSignOut();
+        return { success: false, error: 'تعذر تحميل ملف الحساب من قاعدة البيانات. يرجى التواصل مع الدعم.' };
       }
 
-      // Fallback: If not found in Supabase Auth or offline, check local accounts (e.g. seeded admin)
-      const profiles = db.getProfiles();
-      const found = profiles.find((p) => p.email.toLowerCase().trim() === email.toLowerCase().trim());
-      if (found) {
-        if (found.isSuspended) return { success: false, error: 'هذا الحساب موقوف حالياً. يرجى التواصل مع إدارة المنصة.' };
-        if (found.password && found.password !== pass.trim()) return { success: false, error: 'كلمة المرور غير صحيحة. يرجى التحقق والمحاولة مجدداً.' };
-        localStorage.setItem(CURRENT_USER_KEY, found.id);
-        setUser(found);
-        return { success: true };
+      if (import.meta.env.DEV) {
+        // Development-only fallback for local seed accounts.
+        const profiles = db.getProfiles();
+        const found = profiles.find((p) => p.email.toLowerCase().trim() === email.toLowerCase().trim());
+        if (found) {
+          if (found.isSuspended) return { success: false, error: 'هذا الحساب موقوف حالياً. يرجى التواصل مع إدارة المنصة.' };
+          if (found.password && found.password !== pass.trim()) return { success: false, error: 'كلمة المرور غير صحيحة. يرجى التحقق والمحاولة مجدداً.' };
+          localStorage.setItem(CURRENT_USER_KEY, found.id);
+          setUser(found);
+          return { success: true };
+        }
       }
 
       if (error) return { success: false, error: translateAuthError(error) };
       if (!userId) return { success: false, error: 'فشل تسجيل الدخول — يرجى المحاولة مجدداً' };
     }
 
-    // localStorage mode
+    if (!import.meta.env.DEV) {
+      return { success: false, error: 'تسجيل الدخول السحابي غير مهيأ. يرجى التواصل مع الدعم.' };
+    }
+
+    // Development-only localStorage mode
     const profiles = db.getProfiles();
     const found = profiles.find((p) => p.email.toLowerCase().trim() === email.toLowerCase().trim());
     if (!found) return { success: false, error: 'البريد الإلكتروني غير مسجل بالمنصة' };
@@ -216,6 +234,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) return { success: false, error: translateAuthError(error) };
       if (!userId) return { success: false, error: 'فشل إنشاء الحساب — يرجى المحاولة مجدداً' };
 
+      const sessionUserId = await sbGetSession();
+      if (!sessionUserId || sessionUserId !== userId) {
+        return { success: false, error: 'تم إنشاء الحساب. تحقق من بريدك الإلكتروني ثم سجّل الدخول.' };
+      }
+
       // Check if profile was created by DB trigger, or upsert it
       let profile = await sbGetProfile(userId);
       if (!profile) {
@@ -233,26 +256,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         profile = await sbGetProfile(userId);
       }
+      if (!profile) {
+        await sbSignOut();
+        return { success: false, error: 'تعذر إنشاء ملف الحساب السحابي. يرجى التواصل مع الدعم.' };
+      }
 
-      // Also ensure local db has this profile for seamless fallback
-      const localProfile = db.createProfile({
-        id: userId,
-        email: data.email.trim(),
-        fullName: data.fullName.trim(),
-        role: 'student',
-        phoneNumber: data.phone,
-        governorate: data.governorate,
-        schoolName: data.school,
-        subscriptionTier: 'free',
-        subscriptionStatus: 'active',
-        isSuspended: false,
-      });
-
-      const effectiveProfile = profile || localProfile;
-      localStorage.setItem(CURRENT_USER_KEY, effectiveProfile.id);
-      setUser(effectiveProfile);
+      localStorage.setItem(CURRENT_USER_KEY, profile.id);
+      setUser(profile);
       syncCloudDataToLocal(userId).catch(() => {});
       return { success: true };
+    }
+
+    if (!import.meta.env.DEV) {
+      return { success: false, error: 'التسجيل السحابي غير مهيأ. يرجى التواصل مع الدعم.' };
     }
 
     // localStorage mode
@@ -288,6 +304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ── DEV ONLY: switch role quick (localStorage only) ───────────────────────
   const switchRoleQuick = (targetRole: UserRole) => {
+    if (!import.meta.env.DEV) return;
     const profiles = db.getProfiles();
     const match = profiles.find((p) => p.role === targetRole && !p.isSuspended);
     if (match) {

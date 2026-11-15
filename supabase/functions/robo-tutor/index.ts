@@ -8,15 +8,25 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.118.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
 serve(async (req) => {
+  const origin = req.headers.get("Origin");
+  const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (origin && !allowedOrigins.includes(origin)) {
+    return new Response("Origin not allowed", { status: 403, headers: { "Vary": "Origin" } });
+  }
+  const corsHeaders = {
+    ...(origin ? { "Access-Control-Allow-Origin": origin } : {}),
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+
   // Handle CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   try {
@@ -59,9 +69,15 @@ serve(async (req) => {
 
     const { data: quotaResult, error: quotaError } = await userClient.rpc("check_and_consume_ai_quota");
 
-    if (quotaError) {
-      console.warn("[QuotaRPC Error]", quotaError);
-    } else if (quotaResult && !quotaResult.allowed) {
+    if (quotaError || !quotaResult || typeof quotaResult.allowed !== "boolean") {
+      console.warn("[QuotaRPC Error]", quotaError?.message ?? "Invalid quota response");
+      return new Response(
+        JSON.stringify({ error: "AI quota service is unavailable." }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!quotaResult.allowed) {
       return new Response(
         JSON.stringify({
           error: "Quota exceeded",

@@ -61,6 +61,7 @@ import {
   sbAdminUpdateProfile,
 } from './supabaseDb';
 import { syncQueue } from './syncQueue';
+import { isSupabaseConfigured } from './supabase';
 
 // ==============================================================================
 // UUID GENERATOR — browser-native, no external dependency
@@ -76,6 +77,15 @@ function generateUUID(): string {
     const v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
+}
+
+function syncRoboConversationToCloud(conversation: RoboConversation): void {
+  if (!isSupabaseConfigured()) return;
+  void sbSaveConversation(conversation)
+    .then((saved) => {
+      if (!saved) console.warn('[Robo] Conversation remains local; Supabase rejected the write.');
+    })
+    .catch((error) => console.warn('[Robo] Conversation sync failed:', error));
 }
 
 
@@ -711,53 +721,18 @@ const INITIAL_ATTEMPTS: ExamAttempt[] = [];
 export class LocalDatabaseEngine {
   constructor() {
     this.ensureInitialized();
-    this.purgeMockAndDefaultData();
-  }
-
-  // Purge any mock accounts (e.g. Ahmed Alaa) and legacy dummy slots on startup
-  private purgeMockAndDefaultData(): void {
-    try {
-      // 1. Purge mock user
-      const rawUsers = this.get<UserProfile[]>(STORAGE_KEYS.USERS, []);
-      const cleanUsers = rawUsers.filter(
-        (u) => u.id !== 'usr-student-2' && u.email?.toLowerCase() !== 'ahmed.student@gmail.com'
-      );
-      if (cleanUsers.length !== rawUsers.length) {
-        this.set(STORAGE_KEYS.USERS, cleanUsers);
-      }
-
-      // 2. Ensure mock user is marked permanently deleted
-      const deleted = this.get<string[]>(STORAGE_KEYS.DELETED_USER_IDS, []);
-      if (!deleted.includes('usr-student-2') || !deleted.includes('ahmed.student@gmail.com')) {
-        this.set(STORAGE_KEYS.DELETED_USER_IDS, Array.from(new Set([...deleted, 'usr-student-2', 'ahmed.student@gmail.com'])));
-      }
-
-      // 3. Purge mock & legacy seed attempts
-      const rawAttempts = this.get<ExamAttempt[]>(STORAGE_KEYS.ATTEMPTS, []);
-      const cleanAttempts = rawAttempts.filter(
-        (a) => a.studentId !== 'usr-student-2' && a.id !== 'att-seed-2' && a.id !== 'att-seed-1'
-      );
-      if (cleanAttempts.length !== rawAttempts.length) {
-        this.set(STORAGE_KEYS.ATTEMPTS, cleanAttempts);
-      }
-
-      // 4. Purge 'default' schedule slots and tasks
-      const rawSlots = this.get<StudentScheduleSlot[]>(STORAGE_KEYS.STUDENT_SCHEDULE, []);
-      const cleanSlots = rawSlots.filter((s) => s.studentId !== 'default');
-      if (cleanSlots.length !== rawSlots.length) {
-        this.set(STORAGE_KEYS.STUDENT_SCHEDULE, cleanSlots);
-      }
-
-      const rawTasks = this.get<StudentTask[]>(STORAGE_KEYS.STUDENT_TASKS, []);
-      const cleanTasks = rawTasks.filter((t) => t.studentId !== 'default');
-      if (cleanTasks.length !== rawTasks.length) {
-        this.set(STORAGE_KEYS.STUDENT_TASKS, cleanTasks);
-      }
-    } catch {
-      // ignore
-    }
   }
   private memoryCache = new Map<string, any>();
+
+  private getDeletedProfileIds(): Set<string> {
+    const stored = this.get<string[]>(STORAGE_KEYS.DELETED_USER_IDS, []);
+    const legacyAutoExcluded = new Set(['usr-student-2', 'ahmed.student@gmail.com']);
+    const retained = stored.filter((id) => typeof id === 'string' && !legacyAutoExcluded.has(id.toLowerCase()));
+    if (retained.length !== stored.length) {
+      this.set(STORAGE_KEYS.DELETED_USER_IDS, retained);
+    }
+    return new Set(retained);
+  }
 
   private get<T>(key: string, defaultValue: T): T {
     if (this.memoryCache.has(key)) {
@@ -784,52 +759,13 @@ export class LocalDatabaseEngine {
       localStorage.setItem(key, JSON.stringify(value));
     } catch (e: any) {
       console.error(`Failed writing key ${key} to storage:`, e);
-      // Emergency recovery for QuotaExceededError
-      if (e?.name === 'QuotaExceededError' || e?.code === 22 || e?.number === -2147024882) {
-        try {
-          // Remove old legacy bloated keys
-          localStorage.removeItem('kawkab_robo_messages_v9');
-          localStorage.removeItem('kawkab_robo_messages_v8');
-          localStorage.removeItem('kawkab_audit_logs_v9');
-
-          // Clean heavy base64 strings from conversations
-          const convs = this.get<any>(STORAGE_KEYS.ROBO_CONVERSATIONS, {});
-          if (convs && typeof convs === 'object') {
-            Object.keys(convs).forEach((uid) => {
-              if (Array.isArray(convs[uid])) {
-                convs[uid] = convs[uid].slice(0, 5).map((c: any) => ({
-                  ...c,
-                  messages: (c.messages || []).slice(-20).map((m: any) => ({
-                    ...m,
-                    attachmentUrl: m.attachmentUrl && m.attachmentUrl.length > 300 ? undefined : m.attachmentUrl,
-                  })),
-                }));
-              }
-            });
-            localStorage.setItem(STORAGE_KEYS.ROBO_CONVERSATIONS, JSON.stringify(convs));
-          }
-
-          // Retry saving
-          localStorage.setItem(key, JSON.stringify(value));
-          console.log(`Successfully recovered and saved key ${key} after quota cleanup.`);
-        } catch (retryErr) {
-          console.warn('Failed emergency quota cleanup:', retryErr);
-        }
-      }
     }
   }
 
   public ensureInitialized(): void {
     const currentVersion = localStorage.getItem(STORAGE_KEYS.VERSION);
     if (currentVersion !== 'v9') {
-      try {
-        // Clear all previous version keys for a clean production database
-        Object.keys(localStorage).forEach((key) => {
-          if (key.startsWith('kawkab_')) {
-            localStorage.removeItem(key);
-          }
-        });
-      } catch (e) {}
+      // Keep existing data and initialize only missing keys below.
       localStorage.setItem(STORAGE_KEYS.VERSION, 'v9');
     }
 
@@ -850,11 +786,6 @@ export class LocalDatabaseEngine {
     }
     if (!localStorage.getItem(STORAGE_KEYS.QUESTIONS)) {
       this.set(STORAGE_KEYS.QUESTIONS, INITIAL_QUESTIONS);
-    }
-    // Wipe old pre-seeded questions so platform starts completely fresh
-    if (!localStorage.getItem('kawkab_questions_clean_slate_v1')) {
-      this.set(STORAGE_KEYS.QUESTIONS, []);
-      localStorage.setItem('kawkab_questions_clean_slate_v1', 'true');
     }
     if (!localStorage.getItem(STORAGE_KEYS.PLANS)) {
       this.set(STORAGE_KEYS.PLANS, INITIAL_PLANS);
@@ -898,6 +829,7 @@ export class LocalDatabaseEngine {
   }
 
   public resetToEmptyState(): void {
+    if (!import.meta.env.DEV) return;
     try {
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith('kawkab_')) {
@@ -910,13 +842,11 @@ export class LocalDatabaseEngine {
 
   // --- PROFILES & AUTH ---
   public getProfiles(): UserProfile[] {
-    const deletedIds = new Set(this.get<string[]>(STORAGE_KEYS.DELETED_USER_IDS, []));
-    deletedIds.add('usr-student-2');
-    deletedIds.add('ahmed.student@gmail.com');
+    const deletedIds = this.getDeletedProfileIds();
 
     const rawUsers = this.get<UserProfile[]>(STORAGE_KEYS.USERS, INITIAL_PROFILES);
     const users = rawUsers.filter(
-      (u) => !deletedIds.has(u.id) && !deletedIds.has(u.email.toLowerCase()) && u.id !== 'usr-student-2' && u.email.toLowerCase() !== 'ahmed.student@gmail.com'
+      (u) => !deletedIds.has(u.id) && !deletedIds.has(u.email.toLowerCase())
     );
 
     let changed = false;
@@ -938,9 +868,7 @@ export class LocalDatabaseEngine {
   // Multi-device cloud sync: merge real registered profiles from Supabase
   public syncProfilesFromCloud(cloudProfiles: UserProfile[]): void {
     if (!cloudProfiles || cloudProfiles.length === 0) return;
-    const deletedIds = new Set(this.get<string[]>(STORAGE_KEYS.DELETED_USER_IDS, []));
-    deletedIds.add('usr-student-2');
-    deletedIds.add('ahmed.student@gmail.com');
+    const deletedIds = this.getDeletedProfileIds();
 
     const current = this.getProfiles();
     let changed = false;
@@ -967,7 +895,7 @@ export class LocalDatabaseEngine {
     if (!cloudAttempts || cloudAttempts.length === 0) return;
     const current = this.getExamAttempts();
     const currentIds = new Set(current.map((a) => a.id));
-    const toAdd = cloudAttempts.filter((a) => !currentIds.has(a.id) && a.studentId !== 'usr-student-2');
+    const toAdd = cloudAttempts.filter((a) => !currentIds.has(a.id));
     if (toAdd.length > 0) {
       this.set(STORAGE_KEYS.ATTEMPTS, [...toAdd, ...current]);
     }
@@ -2178,7 +2106,6 @@ export class LocalDatabaseEngine {
       if (staffIds.has(u.id)) return false;
       if (email && staffEmails.has(email)) return false;
       if (u.isSuspended) return false;
-      if (u.id === 'usr-student-2' || email === 'ahmed.student@gmail.com') return false;
       return true;
     });
 
@@ -2422,7 +2349,7 @@ export class LocalDatabaseEngine {
 
     this.set(STORAGE_KEYS.ROBO_CONVERSATIONS, all);
     // Supabase sync (fire-and-forget)
-    sbSaveConversation(conv).catch(() => {});
+    syncRoboConversationToCloud(conv);
     return { userMsg, quotaExceeded: false };
   }
 
@@ -2449,7 +2376,7 @@ export class LocalDatabaseEngine {
     conv.updatedAt = new Date().toISOString();
     this.set(STORAGE_KEYS.ROBO_CONVERSATIONS, all);
     // Supabase sync (fire-and-forget)
-    sbSaveConversation(conv).catch(() => {});
+    syncRoboConversationToCloud(conv);
 
     return replyMsg;
   }
@@ -2543,7 +2470,7 @@ export class LocalDatabaseEngine {
     });
     this.set(STORAGE_KEYS.ROBO_CONVERSATIONS, all);
     if (targetConv) {
-      sbSaveConversation(targetConv).catch(() => {});
+      syncRoboConversationToCloud(targetConv);
     }
   }
 

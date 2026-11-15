@@ -5,21 +5,18 @@
 // ==============================================================================
 
 import { supabase, isSupabaseConfigured } from './supabase';
+import { ensureUUID, isValidUUID } from './uuid';
+export { ensureUUID, isValidUUID, UUID_REGEX } from './uuid';
 
-export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function isValidUUID(id: unknown): boolean {
-  return typeof id === 'string' && UUID_REGEX.test(id);
-}
-export function ensureUUID(id?: string | null): string {
-  if (id && isValidUUID(id)) return id;
-  if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
-    return (crypto as any).randomUUID() as string;
+function requireUUIDFields(operation: string, fields: Record<string, string | null | undefined>): boolean {
+  const invalidFields = Object.entries(fields)
+    .filter(([, value]) => value != null && !isValidUUID(value))
+    .map(([field]) => field);
+  if (invalidFields.length > 0) {
+    console.warn(`[${operation}] Skipping Supabase request; invalid UUID field(s): ${invalidFields.join(', ')}`);
+    return false;
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+  return true;
 }
 
 import type {
@@ -190,6 +187,7 @@ export async function sbGetSession(): Promise<string | null> {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetProfile(userId: string): Promise<UserProfile | null> {
   if (!isSupabaseConfigured() || !supabase) return null;
+  if (!requireUUIDFields('sbGetProfile', { userId })) return null;
   try {
     const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (error || !data) return null;
@@ -208,6 +206,7 @@ export async function sbGetAllProfiles(): Promise<UserProfile[]> {
 
 export async function sbUpsertProfile(profile: Partial<UserProfile> & { id: string }): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbUpsertProfile', { id: profile.id })) return false;
   try {
     const row: Record<string, unknown> = { id: profile.id };
     if (profile.email !== undefined) row['email'] = profile.email;
@@ -228,6 +227,7 @@ export async function sbUpsertProfile(profile: Partial<UserProfile> & { id: stri
 
 export async function sbAdminUpdateProfile(userId: string, updates: { role?: UserRole; subscriptionTier?: SubscriptionTier; subscriptionStatus?: SubscriptionStatus; isSuspended?: boolean; subscriptionExpiresAt?: string }): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbAdminUpdateProfile', { userId })) return false;
   try {
     const row: Record<string, unknown> = {};
     if (updates.role !== undefined) row['role'] = updates.role;
@@ -255,6 +255,7 @@ export async function sbGetSubjects(): Promise<Subject[]> {
 
 export async function sbSaveSubject(subject: Partial<Subject>): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSaveSubject', { id: subject.id })) return false;
   try {
     const row: Record<string, unknown> = { slug: subject.slug, name_ar: subject.nameAr, description: subject.description, icon: subject.icon, color_primary: subject.colorPrimary, color_secondary: subject.colorSecondary, order_index: subject.orderIndex, is_published: subject.isPublished ?? true };
     if (subject.id) row['id'] = subject.id;
@@ -270,6 +271,7 @@ export async function sbSaveSubject(subject: Partial<Subject>): Promise<boolean>
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetLessons(subjectId?: string): Promise<Lesson[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetLessons', { subjectId })) return [];
   try {
     let query = supabase.from('lessons').select('*').order('order_index');
     if (subjectId) query = query.eq('subject_id', subjectId);
@@ -281,6 +283,7 @@ export async function sbGetLessons(subjectId?: string): Promise<Lesson[]> {
 
 export async function sbSaveLesson(lesson: Partial<Lesson> & { subjectId: string; title: string; contentHtml: string }): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSaveLesson', { id: lesson.id, subjectId: lesson.subjectId, unitId: lesson.unitId })) return false;
   try {
     const row: Record<string, unknown> = { subject_id: lesson.subjectId, unit_id: lesson.unitId ?? null, title: lesson.title, order_index: lesson.orderIndex ?? 0, content_html: lesson.contentHtml, summary: lesson.summary ?? null, teacher_name: lesson.teacherName ?? null, video_type: lesson.videoType ?? null, video_url: lesson.videoUrl ?? null, pdf_url: lesson.pdfUrl ?? null, images: lesson.images ?? [], duration_minutes: lesson.durationMinutes ?? 20, is_free_preview: lesson.isFreePreview ?? false, is_published: lesson.isPublished ?? true };
     if (lesson.id) row['id'] = lesson.id;
@@ -292,6 +295,7 @@ export async function sbSaveLesson(lesson: Partial<Lesson> & { subjectId: string
 
 export async function sbDeleteLesson(lessonId: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbDeleteLesson', { lessonId })) return false;
   try {
     const { error } = await supabase.from('lessons').delete().eq('id', lessonId);
     if (error) { console.warn('[sbDeleteLesson]', error.message); return false; }
@@ -304,6 +308,7 @@ export async function sbDeleteLesson(lessonId: string): Promise<boolean> {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetProgress(studentId: string): Promise<LessonProgress[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetProgress', { studentId })) return [];
   try {
     const { data, error } = await supabase.from('lesson_progress').select('*').eq('student_id', studentId);
     if (error || !data) return [];
@@ -313,6 +318,7 @@ export async function sbGetProgress(studentId: string): Promise<LessonProgress[]
 
 export async function sbMarkLessonComplete(studentId: string, lessonId: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbMarkLessonComplete', { studentId, lessonId })) return false;
   try {
     const { error } = await supabase.from('lesson_progress').upsert({ student_id: studentId, lesson_id: lessonId, completed: true, completed_at: new Date().toISOString() }, { onConflict: 'lesson_id,student_id' });
     if (error) { console.warn('[sbMarkLessonComplete]', error.message); return false; }
@@ -325,6 +331,7 @@ export async function sbMarkLessonComplete(studentId: string, lessonId: string):
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetAttempts(studentId: string): Promise<ExamAttempt[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetAttempts', { studentId })) return [];
   try {
     const { data, error } = await supabase.from('exam_attempts').select('*').eq('student_id', studentId).order('created_at', { ascending: false });
     if (error || !data) return [];
@@ -343,6 +350,7 @@ export async function sbGetAllAttempts(): Promise<ExamAttempt[]> {
 
 export async function sbSaveAttempt(attempt: ExamAttempt): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSaveAttempt', { examId: attempt.examId, studentId: attempt.studentId })) return false;
   try {
     const attemptId = ensureUUID(attempt.id);
     attempt.id = attemptId;
@@ -361,6 +369,11 @@ export async function sbSubmitAndGradeExamAttempt(
   violationLogs: Array<{ timestamp: string; type: string; details: string }>
 ): Promise<{ success: boolean; attempt?: Partial<ExamAttempt>; error?: string }> {
   if (!isSupabaseConfigured() || !supabase) return { success: false, error: 'Supabase not configured' };
+  const selectedChoiceIds = Object.values(answers).map((answer) => answer.selectedChoiceId || undefined);
+  if (!requireUUIDFields('sbSubmitAndGradeExamAttempt', {
+    examId,
+    ...Object.fromEntries(selectedChoiceIds.map((id, index) => [`selectedChoiceId${index}`, id])),
+  })) return { success: false, error: 'Invalid UUID in exam submission' };
   try {
     const { data, error } = await supabase.rpc('submit_and_grade_exam_attempt', {
       p_exam_id: examId,
@@ -390,11 +403,12 @@ export async function sbCheckAndConsumeAiQuota(): Promise<{ allowed: boolean; us
   try {
     const { data, error } = await supabase.rpc('check_and_consume_ai_quota');
     if (error || !data) {
-      return { allowed: true, used: 0, limit: 10, remaining: 10 };
+      console.warn('[sbCheckAndConsumeAiQuota] Quota check failed; denying request.', error?.message);
+      return { allowed: false, used: 0, limit: 10, remaining: 0 };
     }
     return data;
   } catch {
-    return { allowed: true, used: 0, limit: 10, remaining: 10 };
+    return { allowed: false, used: 0, limit: 10, remaining: 0 };
   }
 }
 
@@ -406,11 +420,12 @@ export async function sbGetAiQuotaStatus(): Promise<{ allowed: boolean; used: nu
   try {
     const { data, error } = await supabase.rpc('get_ai_quota_status');
     if (error || !data) {
-      return { allowed: true, used: 0, limit: 10, remaining: 10 };
+      console.warn('[sbGetAiQuotaStatus] Quota status unavailable.', error?.message);
+      return { allowed: false, used: 0, limit: 10, remaining: 0 };
     }
     return data;
   } catch {
-    return { allowed: true, used: 0, limit: 10, remaining: 10 };
+    return { allowed: false, used: 0, limit: 10, remaining: 0 };
   }
 }
 
@@ -419,6 +434,7 @@ export async function sbGetAiQuotaStatus(): Promise<{ allowed: boolean; used: nu
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetCertificates(studentId: string): Promise<Certificate[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetCertificates', { studentId })) return [];
   try {
     const { data, error } = await supabase.from('certificates').select('*').eq('student_id', studentId).eq('is_revoked', false).order('issued_at', { ascending: false });
     if (error || !data) return [];
@@ -429,6 +445,7 @@ export async function sbGetCertificates(studentId: string): Promise<Certificate[
 
 export async function sbSaveCertificate(cert: Certificate): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSaveCertificate', { studentId: cert.studentId, examId: cert.examId })) return false;
   try {
     // Only pass valid UUID for id if not a client-generated string
     const isClientUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cert.id);
@@ -461,11 +478,17 @@ export async function sbSaveCertificate(cert: Certificate): Promise<boolean> {
 export async function sbRevokeCertificate(certNumber: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
   try {
-    const { error } = await supabase.from('certificates')
+    const { data, error } = await supabase.from('certificates')
       .update({ is_revoked: true })
-      .or(`certificate_number.eq.${certNumber},id.eq.${certNumber}`);
+      .eq('certificate_number', certNumber)
+      .select('id');
     if (error) return false;
-    return true;
+    if (data?.length) return true;
+    if (!isValidUUID(certNumber)) return false;
+    const { error: idError } = await supabase.from('certificates')
+      .update({ is_revoked: true })
+      .eq('id', certNumber);
+    return !idError;
   } catch {
     return false;
   }
@@ -520,6 +543,12 @@ export async function sbGetChallengeByCode(code: string): Promise<LiveChallenge 
 
 export async function sbUpsertChallenge(challenge: LiveChallenge): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbUpsertChallenge', {
+    subjectId: challenge.subjectId,
+    createdBy: challenge.createdBy,
+    opponentId: challenge.opponentId,
+    winnerId: challenge.winnerId,
+  })) return false;
   try {
     const challengeId = ensureUUID(challenge.id);
     challenge.id = challengeId;
@@ -542,6 +571,7 @@ export function sbSubscribeToChallenges(onUpdate: (challenge: LiveChallenge) => 
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetNotifications(userId: string): Promise<Notification[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetNotifications', { userId })) return [];
   try {
     const { data, error } = await supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(50);
     if (error || !data) return [];
@@ -551,6 +581,7 @@ export async function sbGetNotifications(userId: string): Promise<Notification[]
 
 export async function sbMarkNotificationRead(notifId: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbMarkNotificationRead', { notifId })) return false;
   try {
     const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', notifId);
     return !error;
@@ -559,6 +590,7 @@ export async function sbMarkNotificationRead(notifId: string): Promise<boolean> 
 
 export async function sbInsertNotification(notif: Omit<Notification, 'id' | 'createdAt'>): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbInsertNotification', { userId: notif.userId })) return false;
   try {
     const { error } = await supabase.from('notifications').insert({ user_id: notif.userId, title: notif.title, message: notif.message, type: notif.type, is_read: notif.isRead ?? false, link_url: notif.linkUrl ?? null });
     return !error;
@@ -592,6 +624,7 @@ export async function sbGetSubscriptionRequests(): Promise<SubscriptionRequest[]
 
 export async function sbSaveSubscriptionRequest(req: Omit<SubscriptionRequest, 'id' | 'createdAt' | 'studentName' | 'studentEmail' | 'studentPhone' | 'status'> & { status?: SubscriptionRequest['status'] }): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSaveSubscriptionRequest', { studentId: req.studentId, planId: req.planId || null })) return false;
   try {
     const { error } = await supabase.from('subscription_requests').insert({ student_id: req.studentId, plan_id: req.planId || null, tier: req.tier, payment_method: req.paymentMethod, payment_proof_url: req.paymentProofUrl ?? null, sender_phone: req.senderPhone ?? null, transaction_ref: req.transactionRef ?? null, status: 'pending' });
     return !error;
@@ -600,6 +633,7 @@ export async function sbSaveSubscriptionRequest(req: Omit<SubscriptionRequest, '
 
 export async function sbUpdateSubscriptionRequest(reqId: string, status: 'approved' | 'rejected', adminNotes?: string, reviewedBy?: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbUpdateSubscriptionRequest', { reqId, reviewedBy: reviewedBy || null })) return false;
   try {
     const { error } = await supabase.from('subscription_requests').update({ status, admin_notes: adminNotes ?? null, reviewed_by: reviewedBy ?? null, reviewed_at: new Date().toISOString() }).eq('id', reqId);
     return !error;
@@ -624,6 +658,7 @@ export async function sbGetTeacherAssignments(): Promise<TeacherAssignment[]> {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetStreak(studentId: string): Promise<DailyStreak | null> {
   if (!isSupabaseConfigured() || !supabase) return null;
+  if (!requireUUIDFields('sbGetStreak', { studentId })) return null;
   try {
     const { data, error } = await supabase.from('daily_streaks').select('*').eq('student_id', studentId).single();
     if (error || !data) return null;
@@ -633,6 +668,7 @@ export async function sbGetStreak(studentId: string): Promise<DailyStreak | null
 
 export async function sbUpsertStreak(streak: DailyStreak): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbUpsertStreak', { studentId: streak.studentId })) return false;
   try {
     const { error } = await supabase.from('daily_streaks').upsert({ student_id: streak.studentId, current_streak: streak.currentStreak, longest_streak: streak.longestStreak, last_activity_date: streak.lastActiveDate }, { onConflict: 'student_id' });
     return !error;
@@ -641,6 +677,7 @@ export async function sbUpsertStreak(streak: DailyStreak): Promise<boolean> {
 
 export async function sbGetBadges(studentId: string): Promise<StudentBadge[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetBadges', { studentId })) return [];
   try {
     const { data, error } = await supabase.from('student_badges').select('*').eq('student_id', studentId);
     if (error || !data) return [];
@@ -651,6 +688,7 @@ export async function sbGetBadges(studentId: string): Promise<StudentBadge[]> {
 
 export async function sbAwardBadge(studentId: string, badgeType: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbAwardBadge', { studentId })) return false;
   try {
     const { error } = await supabase.from('student_badges').upsert({ student_id: studentId, badge_type: badgeType, is_new: true }, { onConflict: 'student_id,badge_type' });
     return !error;
@@ -659,6 +697,7 @@ export async function sbAwardBadge(studentId: string, badgeType: string): Promis
 
 export async function sbGetGoals(studentId: string): Promise<StudentGoal[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetGoals', { studentId })) return [];
   try {
     const { data, error } = await supabase.from('student_goals').select('*').eq('student_id', studentId);
     if (error || !data) return [];
@@ -669,6 +708,7 @@ export async function sbGetGoals(studentId: string): Promise<StudentGoal[]> {
 
 export async function sbSaveGoal(goal: StudentGoal): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSaveGoal', { studentId: goal.studentId, subjectId: goal.subjectId })) return false;
   try {
     const goalId = ensureUUID(goal.id);
     goal.id = goalId;
@@ -679,6 +719,7 @@ export async function sbSaveGoal(goal: StudentGoal): Promise<boolean> {
 
 export async function sbGetFlashcards(studentId: string, subjectId: string): Promise<Flashcard[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetFlashcards', { studentId, subjectId })) return [];
   try {
     const { data, error } = await supabase.from('flashcards').select('*').eq('student_id', studentId).eq('subject_id', subjectId).order('created_at');
     if (error || !data) return [];
@@ -689,6 +730,7 @@ export async function sbGetFlashcards(studentId: string, subjectId: string): Pro
 
 export async function sbSaveFlashcards(studentId: string, cards: Flashcard[]): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase || cards.length === 0) return false;
+  if (!requireUUIDFields('sbSaveFlashcards', { studentId, ...Object.fromEntries(cards.map((card, index) => [`subjectId${index}`, card.subjectId])) })) return false;
   try {
     const rows = cards.map((c) => {
       const cardId = ensureUUID(c.id);
@@ -702,6 +744,7 @@ export async function sbSaveFlashcards(studentId: string, cards: Flashcard[]): P
 
 export async function sbDeleteFlashcard(cardId: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbDeleteFlashcard', { cardId })) return false;
   try {
     const { error } = await supabase.from('flashcards').delete().eq('id', cardId);
     return !error;
@@ -713,6 +756,7 @@ export async function sbDeleteFlashcard(cardId: string): Promise<boolean> {
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetConversations(userId: string): Promise<RoboConversation[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetConversations', { userId })) return [];
   try {
     const { data: convData, error } = await supabase.from('ai_conversations').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(10);
     if (error || !convData) return [];
@@ -729,11 +773,21 @@ export async function sbGetConversations(userId: string): Promise<RoboConversati
 
 export async function sbSaveConversation(conv: RoboConversation): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!isValidUUID(conv.userId)) {
+    console.warn('[sbSaveConversation] Refusing cloud write: userId is not a UUID.');
+    return false;
+  }
   try {
     const convId = ensureUUID(conv.id);
     conv.id = convId; // Keep memory object compatible
 
-    await supabase.from('ai_conversations').upsert({ id: convId, user_id: conv.userId, title: conv.title }, { onConflict: 'id' });
+    const { error: conversationError } = await supabase
+      .from('ai_conversations')
+      .upsert({ id: convId, user_id: conv.userId, title: conv.title }, { onConflict: 'id' });
+    if (conversationError) {
+      console.warn('[sbSaveConversation] Conversation write failed:', conversationError.message);
+      return false;
+    }
     const msgs = conv.messages.slice(-20);
     if (msgs.length > 0) {
       const rows = msgs.map((m) => {
@@ -747,7 +801,13 @@ export async function sbSaveConversation(conv: RoboConversation): Promise<boolea
           attachment_url: m.attachmentUrl && m.attachmentUrl.length < 300 ? m.attachmentUrl : null,
         };
       });
-      await supabase.from('ai_messages').upsert(rows, { onConflict: 'id' });
+      const { error: messagesError } = await supabase
+        .from('ai_messages')
+        .upsert(rows, { onConflict: 'id' });
+      if (messagesError) {
+        console.warn('[sbSaveConversation] Message write failed:', messagesError.message);
+        return false;
+      }
     }
     return true;
   } catch (e) { console.warn('[sbSaveConversation]', e); return false; }
@@ -758,6 +818,7 @@ export async function sbSaveConversation(conv: RoboConversation): Promise<boolea
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetStudentGroupMessages(studentId: string): Promise<StudentGroupMessage[]> {
   if (!isSupabaseConfigured() || !supabase) return [];
+  if (!requireUUIDFields('sbGetStudentGroupMessages', { studentId })) return [];
   try {
     const { data, error } = await supabase
       .from('student_group_messages')
@@ -775,6 +836,7 @@ export async function sbGetStudentGroupMessages(studentId: string): Promise<Stud
 
 export async function sbSendStudentGroupMessage(studentId: string, text: string, attachmentUrl?: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSendStudentGroupMessage', { studentId })) return false;
   try {
     const { error } = await supabase
       .from('student_group_messages')
@@ -796,6 +858,7 @@ export async function sbSendStudentGroupMessage(studentId: string, text: string,
 
 export function sbSubscribeToStudentGroupMessages(studentId: string, onNewMessage: (msg: StudentGroupMessage) => void): () => void {
   if (!isSupabaseConfigured() || !supabase) return () => {};
+  if (!requireUUIDFields('sbSubscribeToStudentGroupMessages', { studentId })) return () => {};
   try {
     const channel = supabase
       .channel(`student-group-chat-${studentId}`)
@@ -1085,7 +1148,8 @@ export async function sbUploadLessonImage(file: File): Promise<{ url: string | n
         });
 
       if (error) {
-        console.warn('[sbUploadLessonImage] Cloud upload error, falling back to local DataURL:', error.message);
+        console.warn('[sbUploadLessonImage] Cloud upload failed:', error.message);
+        return { url: null, error: 'تعذر رفع الصورة إلى التخزين السحابي. لم يتم حفظ رابط محلي بديل.' };
       } else if (data?.path) {
         const { data: urlData } = supabase.storage
           .from(LESSON_MEDIA_BUCKET)
@@ -1096,7 +1160,8 @@ export async function sbUploadLessonImage(file: File): Promise<{ url: string | n
         }
       }
     } catch (e: any) {
-      console.warn('[sbUploadLessonImage] Exception during storage upload:', e?.message || e);
+      console.warn('[sbUploadLessonImage] Exception during storage upload:', e?.message || 'Unknown storage error');
+      return { url: null, error: 'تعذر رفع الصورة إلى التخزين السحابي. تحقق من الاتصال وحاول مرة أخرى.' };
     }
   }
 
@@ -1119,13 +1184,15 @@ export async function sbUploadLessonImage(file: File): Promise<{ url: string | n
 export async function sbDeleteLessonImage(imageUrl: string): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase || !imageUrl) return false;
   try {
-    if (imageUrl.includes(`/storage/v1/object/public/${LESSON_MEDIA_BUCKET}/`)) {
-      const pathPart = imageUrl.split(`/storage/v1/object/public/${LESSON_MEDIA_BUCKET}/`)[1];
-      if (pathPart) {
-        const { error } = await supabase.storage.from(LESSON_MEDIA_BUCKET).remove([decodeURIComponent(pathPart)]);
-        return !error;
-      }
-    }
+    const url = new URL(imageUrl);
+    const marker = `/storage/v1/object/public/${LESSON_MEDIA_BUCKET}/`;
+    const publicBase = new URL(supabase.storage.from(LESSON_MEDIA_BUCKET).getPublicUrl('origin-check').data.publicUrl);
+    if (url.origin !== publicBase.origin || !url.pathname.includes(marker)) return false;
+    const encodedPath = url.pathname.slice(url.pathname.indexOf(marker) + marker.length);
+    if (!encodedPath) return false;
+    const path = decodeURIComponent(encodedPath);
+    const { error } = await supabase.storage.from(LESSON_MEDIA_BUCKET).remove([path]);
+    return !error;
   } catch (e) {
     console.warn('[sbDeleteLessonImage] Error deleting object:', e);
   }
@@ -1137,6 +1204,7 @@ export async function sbDeleteLessonImage(imageUrl: string): Promise<boolean> {
  */
 export async function sbSaveLessonToCloud(lesson: Lesson): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
+  if (!requireUUIDFields('sbSaveLessonToCloud', { subjectId: lesson.subjectId, unitId: lesson.unitId })) return false;
   try {
     const isCustomUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lesson.id);
     const row = {

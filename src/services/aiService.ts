@@ -6,11 +6,6 @@
 import { RoboMessage } from '../types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
-// Optional developer override from .env.local (never hardcoded in bundle)
-const DEV_GEMINI_API_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) || '';
-const GEMINI_MODEL = 'gemini-1.5-flash';
-const GEMINI_BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${DEV_GEMINI_API_KEY}`;
-
 export type GeminiPart =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } };
@@ -20,36 +15,33 @@ export interface GeminiContent {
   parts: GeminiPart[];
 }
 
-async function callGemini(contents: GeminiContent[], timeoutMs: number = 45000): Promise<string> {
-  if (!DEV_GEMINI_API_KEY) return '';
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
+async function callGemini(contents: GeminiContent[]): Promise<string> {
+  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
+  if (!apiKey) return '';
   try {
-    const response = await fetch(GEMINI_BASE_URL, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents,
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1024,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(`Gemini API error ${response.status}: ${JSON.stringify(err)}`);
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 2048,
+          },
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.warn('[Gemini Client Error]', res.status, await res.text());
+      return '';
     }
-
-    const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } finally {
-    clearTimeout(timer);
+    const data = await res.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  } catch (err) {
+    console.warn('[Gemini Call Failed]', err);
+    return '';
   }
 }
 
