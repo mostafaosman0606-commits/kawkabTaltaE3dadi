@@ -1,0 +1,158 @@
+import type { Flashcard } from '../../types';
+
+export const INITIAL_FLASHCARDS: Flashcard[] = [
+  // Arabic (les-arabic-1: اسم الفاعل)
+  {
+    id: 'fc-ar-1',
+    subjectId: 'sub-arabic',
+    lessonId: 'les-arabic-1',
+    front: 'ما هو مفهوم «اسم الفاعل» لغةً واصطلاحاً؟',
+    back: 'اسم مشتق من الفعل المبني للمعلوم للدلالة على من قام بالفعل أو اتصف به (مثل: كاتب، صائم، مجتهد).',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-ar-2',
+    subjectId: 'sub-arabic',
+    lessonId: 'les-arabic-1',
+    front: 'كيف يُصاغ اسم الفاعل من الفعل الثلاثي معتل الوسط (الأجوف) مثل: قال، باع؟',
+    back: 'يُصاغ على وزن «فاعل» وتُقلب عينه همزة مكسورة، فيقال: (قال ➔ قائل)، (باع ➔ بائع).',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-ar-3',
+    subjectId: 'sub-arabic',
+    lessonId: 'les-arabic-1',
+    front: 'كيف يصاغ اسم الفاعل من الفعل غير الثلاثي؟',
+    back: 'على وزن مضارعه مع إبدال حرف المضارعة ميماً مضمومة وكسر ما قبل الآخر، مثل: (انطلق ➔ يَنطَلِق ➔ مُنطَلِق).',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-ar-4',
+    subjectId: 'sub-arabic',
+    lessonId: 'les-arabic-1',
+    front: 'ما شروط عمل اسم الفاعل المجرد من (أل)؟',
+    back: '1- أن يدل على الحال أو الاستقبال.\n2- أن يعتمد على: نفي، استفهام، مبتدأ، موصوف، أو نداء.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+
+  // Science (les-science-1: الحركة في اتجاه واحد والسرعة المنتظمة)
+  {
+    id: 'fc-sc-1',
+    subjectId: 'sub-science',
+    lessonId: 'les-science-1',
+    front: 'ما هو تعريف «الحركة» في مادة العلوم؟',
+    back: 'تغير موضع الجسم بمرور الزمن بالنسبة لموضع جسم آخر ثابت (نقطة مرجعية). وأبسط أنواعها الحركة في اتجاه واحد في خط مستقيم.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-sc-2',
+    subjectId: 'sub-science',
+    lessonId: 'les-science-1',
+    front: 'ما هو قانون حساب السرعة (ع) ووحدات قياسها الشائعة؟',
+    back: 'السرعة (ع) = المسافة (ف) ÷ الزمن (ز).\nوحدة قياسها: (متر / ثانية) أو (كم / ساعة). للتحويل من كم/س إلى م/ث نضرب في (5 / 18).',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-sc-3',
+    subjectId: 'sub-science',
+    lessonId: 'les-science-1',
+    front: 'ما الفرق بين «السرعة المنتظمة» و«السرعة غير المنتظمة»؟',
+    back: 'السرعة المنتظمة: يقطع فيها الجسم مسافات متساوية في أزمنة متساوية.\nغير المنتظمة: يقطع مسافات غير متساوية في أزمنة متساوية أو العكس.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-sc-4',
+    subjectId: 'sub-science',
+    lessonId: 'les-science-1',
+    front: 'ما هي «السرعة المتوسطة» (ع¯)؟',
+    back: 'المسافة الكلية التي يقطعها الجسم المتحرك مقسومة على الزمن الكلي المستغرق لقطع هذه المسافة: (ع¯ = ف الكلية ÷ ز الكلي).',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-sc-5',
+    subjectId: 'sub-science',
+    lessonId: 'les-science-1',
+    front: 'متى تكون السرعة النسبية لجسم متحرك مساوية للصفر؟',
+    back: 'عندما يتحرك المراقب في نفس اتجاه حركة الجسم وبنفس سرعته الفعلية بالضبط.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+
+  // Math (les-math-1: حاصل الضرب الديكارتي)
+  {
+    id: 'fc-ma-1',
+    subjectId: 'sub-math',
+    lessonId: 'les-math-1',
+    front: 'ما قاعدة تساوي زوجين مرتبين: (أ ، ب) = (س ، ص)؟',
+    back: 'المسقط الأول = المسقط الأول (أ = س)، والمسقط الثاني = المسقط الثاني (ب = ص).',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-ma-2',
+    subjectId: 'sub-math',
+    lessonId: 'les-math-1',
+    front: 'إذا كانت س = {1 ، 2} ، وَ ص = {3 ، 4} ، فما هو س × ص؟',
+    back: 'س × ص = {(1 ، 3) ، (1 ، 4) ، (2 ، 3) ، (2 ، 4)}.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-ma-3',
+    subjectId: 'sub-math',
+    lessonId: 'les-math-1',
+    front: 'ما العلاقة بين ن(س × ص) وَ ن(س) وَ ن(ص)؟',
+    back: 'عدد عناصر س × ص = ن(س) × ن(ص). إذا كان ن(س) = 3 وَ ن(ص) = 2 فإن ن(س × ص) = 6.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+
+  // Social Studies (les-social-1: مصر بين المماليك والعثمانيين)
+  {
+    id: 'fc-so-1',
+    subjectId: 'sub-social',
+    lessonId: 'les-social-1',
+    front: 'ما نتائج معركة مرج دابق عام 1516م؟',
+    back: 'هزيمة المماليك ومقتل السلطان قنصوة الغوري، وأصبحت بلاد الشام ولاية عثمانية وانفتح الطريق أمام العثمانيين نحو مصر.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-so-2',
+    subjectId: 'sub-social',
+    lessonId: 'les-social-1',
+    front: 'ما نتائج معركة الريدانية عام 1517م؟',
+    back: 'هزيمة المماليك بقيادة طومان باي، دخول العثمانيين القاهرة، انتهاء دولة المماليك، وأصبحت مصر ولاية عثمانية.',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+
+  // English (les-english-1: Around Town)
+  {
+    id: 'fc-en-1',
+    subjectId: 'sub-english',
+    lessonId: 'les-english-1',
+    front: 'What does "botanical gardens" mean in Arabic?',
+    back: 'حدائق نباتية (مساحة واسعة تضم نباتات وأشجار نادرة ومميزة يتم دراستها وعرضها للجمهور).',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+  {
+    id: 'fc-en-2',
+    subjectId: 'sub-english',
+    lessonId: 'les-english-1',
+    front: 'Why do we use Present Simple for timetables (buses, trains)?',
+    back: 'We use the Present Simple to express future events based on fixed public timetables.\nExample: "The train leaves at 8:15 AM tomorrow."',
+    createdBy: 'teacher',
+    createdAt: '2026-09-01T08:00:00.000Z',
+  },
+];
+
