@@ -17,6 +17,7 @@ import {
 } from '../supabaseDb';
 import { syncQueue } from '../syncQueue';
 import { profileService } from './profileService';
+import { curriculumService } from './curriculumService';
 
 export const INITIAL_EXAMINATIONS: Examination[] = [
   {
@@ -63,6 +64,7 @@ export class ExamService {
     const filtered = subjectId ? exams.filter((e) => e.subjectId === subjectId) : exams;
     return filtered.map((e) => ({
       ...e,
+      subjectName: e.subjectName || curriculumService.getSubjectById(e.subjectId)?.nameAr || 'المادة الدراسية',
       questions: questions.filter((q) => q.examId === e.id),
     }));
   }
@@ -276,13 +278,15 @@ export class ExamService {
     const percentage = Number(((initialTotal / (maxScore || 1)) * 100).toFixed(1));
     const passed = !isProvisional && percentage >= exam.passingPercentage;
 
+    const resolvedSubjectName = exam.subjectName || curriculumService.getSubjectById(exam.subjectId)?.nameAr || 'المادة الدراسية';
+
     const newAttempt: ExamAttempt = {
       id: attemptId,
       examId,
       studentId,
       studentName: student?.fullName || 'طالب كوكب تالتة',
       examTitle: exam.title,
-      subjectName: exam.subjectName || 'المادة الدراسية',
+      subjectName: resolvedSubjectName,
       startedAt: new Date(Date.now() - timeSpentSeconds * 1000).toISOString(),
       submittedAt: new Date().toISOString(),
       timeSpentSeconds,
@@ -368,7 +372,7 @@ export class ExamService {
             studentId,
             studentName: s.studentName || student?.fullName || 'طالب كوكب تالتة',
             examTitle: s.examTitle || exam?.title || 'امتحان رسمي',
-            subjectName: s.subjectName || exam?.subjectName || 'المادة الدراسية',
+            subjectName: s.subjectName || exam?.subjectName || (exam?.subjectId ? curriculumService.getSubjectById(exam.subjectId)?.nameAr : null) || 'المادة الدراسية',
             startedAt: new Date(Date.now() - timeSpentSeconds * 1000).toISOString(),
             submittedAt: s.submittedAt || new Date().toISOString(),
             timeSpentSeconds,

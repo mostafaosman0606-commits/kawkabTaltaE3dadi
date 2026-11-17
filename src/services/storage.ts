@@ -212,8 +212,8 @@ export class LocalDatabaseEngine {
     curriculumService.deleteUnit(id);
   }
 
-  public getLessons(unitId?: string, subjectId?: string): Lesson[] {
-    return curriculumService.getLessons(unitId, subjectId);
+  public getLessons(subjectId?: string, unitId?: string): Lesson[] {
+    return curriculumService.getLessons(subjectId, unitId);
   }
 
   public getLessonById(id: string): Lesson | null {
