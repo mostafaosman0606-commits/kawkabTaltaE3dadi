@@ -679,19 +679,19 @@ export async function sbCheckAndConsumeAiQuota(): Promise<{ allowed: boolean; us
 }
 
 // Authoritative Server-Side AI Daily Quota Status Check
-export async function sbGetAiQuotaStatus(): Promise<{ allowed: boolean; used: number; limit: number; remaining: number }> {
+export async function sbGetAiQuotaStatus(): Promise<{ allowed: boolean; used: number; limit: number; remaining: number } | null> {
   if (!isSupabaseConfigured() || !supabase) {
-    return { allowed: true, used: 0, limit: 10, remaining: 10 };
+    return null;
   }
   try {
     const { data, error } = await supabase.rpc('get_ai_quota_status');
     if (error || !data) {
       console.warn('[sbGetAiQuotaStatus] Quota status unavailable.', error?.message);
-      return { allowed: false, used: 0, limit: 10, remaining: 0 };
+      return null;
     }
     return data;
   } catch {
-    return { allowed: false, used: 0, limit: 10, remaining: 0 };
+    return null;
   }
 }
 
@@ -1227,9 +1227,9 @@ export async function sbGetConversations(userId: string): Promise<RoboConversati
     if (error || !convData) return [];
     const conversations: RoboConversation[] = [];
     for (const conv of convData) {
-      const { data: msgs } = await supabase.from('ai_messages').select('*').eq('conversation_id', conv.id).order('created_at').limit(50);
+      const { data: msgs } = await supabase.from('ai_messages').select('*').eq('conversation_id', conv.id).order('created_at', { ascending: false }).limit(50);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const messages: RoboMessage[] = (msgs ?? []).map((m: any) => ({ id: m.id, sender: m.sender, text: m.text, attachmentUrl: m.attachment_url ?? undefined, createdAt: m.created_at }));
+      const messages: RoboMessage[] = (msgs ?? []).reverse().map((m: any) => ({ id: m.id, sender: m.sender, text: m.text, attachmentUrl: m.attachment_url ?? undefined, createdAt: m.created_at }));
       conversations.push({ id: conv.id, userId: conv.user_id, title: conv.title, createdAt: conv.created_at, updatedAt: conv.created_at, messages });
     }
     return conversations;
@@ -1579,11 +1579,44 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
       } catch {}
     }
 
-    // 8. Robo conversations
-    if (convsList.length > 0 && userId) {
+    // 8. Robo conversations: merge cloud data into the current local cache.
+    // A conversation may have been updated locally while this long hydration was
+    // in flight. Replacing localStorage with the earlier cloud snapshot erased
+    // the just-sent user message and Robo reply a few seconds after sending.
+    if (userId) {
       try {
         const localAll = JSON.parse(localStorage.getItem('kawkab_robo_conversations_v1') || '{}');
-        localAll[userId] = convsList;
+        const localConversations: RoboConversation[] = Array.isArray(localAll[userId]) ? localAll[userId] : [];
+        const merged = new Map<string, RoboConversation>();
+
+        for (const conv of [...convsList, ...localConversations]) {
+          const existing = merged.get(conv.id);
+          if (!existing) {
+            merged.set(conv.id, { ...conv, messages: [...(conv.messages || [])] });
+            continue;
+          }
+
+          // Local entries are visited last and win on duplicate message IDs,
+          // preserving attachment names and any fresher in-flight text.
+          const messages = new Map<string, RoboMessage>();
+          for (const message of [...existing.messages, ...(conv.messages || [])]) {
+            messages.set(message.id || `${message.sender}:${message.createdAt}:${message.text}`, message);
+          }
+          const mergedMessages = [...messages.values()].sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+          );
+          const localIsNewer = new Date(conv.updatedAt).getTime() >= new Date(existing.updatedAt).getTime();
+          merged.set(conv.id, {
+            ...(localIsNewer ? conv : existing),
+            title: (localIsNewer ? conv.title : existing.title) || 'محادثة جديدة',
+            updatedAt: new Date(Math.max(new Date(existing.updatedAt).getTime(), new Date(conv.updatedAt).getTime())).toISOString(),
+            messages: mergedMessages,
+          });
+        }
+
+        localAll[userId] = [...merged.values()].sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
         localStorage.setItem('kawkab_robo_conversations_v1', JSON.stringify(localAll));
       } catch {}
     }

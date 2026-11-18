@@ -21,11 +21,54 @@ import {
 import { db } from '../../services/storage';
 import { useAuth } from '../../services/authContext';
 import { askRoboServer } from '../../services/aiService';
-import { syncCloudDataToLocal } from '../../services/supabaseDb';
+import { sbGetAiQuotaStatus, syncCloudDataToLocal } from '../../services/supabaseDb';
+import { isSupabaseConfigured } from '../../services/supabase';
 import { RoboMessage, RoboConversation, UserProfile } from '../../types';
 
 interface RoboAiViewProps {
   onUpgradeClick?: () => void;
+}
+
+function getRoboCurriculumContext(question: string): string {
+  const normalize = (value: string) => value
+    .normalize('NFD')
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .toLowerCase();
+  const ignoredWords = new Set(['ما', 'ماذا', 'كيف', 'هل', 'هو', 'هي', 'في', 'من', 'عن', 'على', 'الي', 'ده', 'دي', 'دا', 'مع', 'انا', 'انت', 'شرح', 'اشرح', 'حل', 'السؤال']);
+  const queryTokens = [...new Set(normalize(question).match(/[\p{L}\p{N}]+/gu) || [])]
+    .filter((token) => token.length > 2 && !ignoredWords.has(token));
+  if (!queryTokens.length) return '';
+
+  const subjects = db.getSubjects();
+  const units = db.getUnits();
+  const candidates = db.getLessons().map((lesson) => {
+    const subject = subjects.find((item) => item.id === lesson.subjectId);
+    const unit = units.find((item) => item.id === lesson.unitId);
+    const title = normalize(lesson.title || '');
+    const unitTitle = normalize(unit?.title || '');
+    const subjectTitle = normalize(subject?.nameAr || '');
+    const summary = normalize(lesson.summary || '');
+    const content = normalize((lesson.contentHtml || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&#160;/g, ' '));
+    const score = queryTokens.reduce((total, token) => total +
+      (title.includes(token) ? 5 : 0) +
+      (unitTitle.includes(token) ? 3 : 0) +
+      (subjectTitle.includes(token) ? 2 : 0) +
+      (summary.includes(token) ? 2 : 0) +
+      (content.includes(token) ? 1 : 0), 0);
+    return { lesson, subject, unit, score, content: (lesson.contentHtml || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() };
+  }).filter((item) => item.score >= 5)
+    .sort((a, b) => b.score - a.score);
+
+  const best = candidates[0];
+  if (!best) return '';
+  return [
+    `مرجع من محتوى المنصة — المادة: ${best.subject?.nameAr || 'غير محددة'}`,
+    `الوحدة: ${best.unit?.title || 'غير محددة'} | الدرس: ${best.lesson.title}`,
+    best.lesson.summary || '',
+    best.content.slice(0, 5000),
+  ].filter(Boolean).join('\n');
 }
 
 export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
@@ -55,6 +98,8 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   const [attachmentPreview, setAttachmentPreview] = useState<string | null>(null);
   const [attachmentName, setAttachmentName] = useState<string>('');
   const [showQuotaWarning, setShowQuotaWarning] = useState(false);
+  const [cloudQuota, setCloudQuota] = useState<{ allowed: boolean; used: number; limit: number; remaining: number } | null>(null);
+  const usesCloudQuota = Boolean(user && isSupabaseConfigured());
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -67,6 +112,18 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   // Voice input state
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState<string>('');
+
+  useEffect(() => {
+    let active = true;
+    if (!usesCloudQuota) {
+      setCloudQuota(null);
+      return () => { active = false; };
+    }
+    sbGetAiQuotaStatus().then((status) => {
+      if (active && status) setCloudQuota(status);
+    });
+    return () => { active = false; };
+  }, [effectiveUser.id, usesCloudQuota]);
 
   // Check speech recognition support (always show button, gracefully handle if unsupported)
   const getSpeechRec = () =>
@@ -213,7 +270,8 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   }, [messages, isTyping]);
 
   // Quota
-  const quota = effectiveUser ? db.getRoboDailyUsage(effectiveUser.id) : { limit: 20, used: 0, remaining: 20 };
+  const localQuota = db.getRoboDailyUsage(effectiveUser.id);
+  const quota = usesCloudQuota ? cloudQuota || localQuota : localQuota;
   const limit = quota.limit;
   const used = quota.used;
   const remaining = quota.remaining;
@@ -283,6 +341,15 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
         ? `📄 أرفقت ملف PDF: "${attachmentName || 'مستند دراسي'}". يرجى مراجعته وتلخيصه وشرح أهم نقاطه وحل أي أسئلة فيه.`
         : 'يرجى مراجعة وشرح السؤال المرفق في الصورة بالتفصيل.');
 
+    if (userText.length > 4000) {
+      setVoiceError('السؤال طويل؛ قسّمه إلى رسائل أقصر (حتى ٤٠٠٠ حرف للرسالة).');
+      return;
+    }
+    if (usesCloudQuota && cloudQuota?.remaining === 0) {
+      setShowQuotaWarning(true);
+      return;
+    }
+
     const savedAttach = attachmentPreview || undefined;
     const savedAttachName = attachmentName || undefined;
 
@@ -303,7 +370,8 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
       targetConvId,
       userText,
       savedAttach,
-      savedAttachName
+      savedAttachName,
+      !usesCloudQuota
     );
 
     // Refresh state immediately so the student's message renders right away
@@ -327,18 +395,27 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     let replyAdded = false;
 
     try {
-      // 3. Ask Gemini AI with FULL conversation history memory!
+      // 3. Ask Robo using the recent conversation context.
       const currentHistory = activeConversation?.messages || [];
       const serverRes = await askRoboServer(
         effectiveUser.id,
         userText,
         effectiveUser.subscriptionTier,
         savedAttach,
-        currentHistory
+        currentHistory,
+        getRoboCurriculumContext(userText)
       );
 
       if (serverRes?.quotaExceeded) {
         setShowQuotaWarning(true);
+      }
+      if (serverRes?.usedQuota !== undefined && serverRes.quotaLimit !== undefined) {
+        setCloudQuota({
+          allowed: !serverRes.quotaExceeded,
+          used: serverRes.usedQuota,
+          limit: serverRes.quotaLimit,
+          remaining: serverRes.remainingQuota ?? Math.max(0, serverRes.quotaLimit - serverRes.usedQuota),
+        });
       }
 
       const reply = serverRes?.reply;
@@ -349,6 +426,11 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     } catch (err) {
       console.warn('Gemini chat error:', err);
     } finally {
+      if (usesCloudQuota) {
+        sbGetAiQuotaStatus().then((status) => {
+          if (status) setCloudQuota(status);
+        });
+      }
       // 4. If no reply was saved (error or empty), show a friendly error message once
       if (!replyAdded) {
         db.addAssistantMessageToConversation(
@@ -368,8 +450,18 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 20 * 1024 * 1024) {
-      alert('حجم الملف كبير جداً. يرجى اختيار ملف أقل من 20 ميجابايت.');
+    if (file.size > 10 * 1024 * 1024) {
+      alert('حجم الملف أكبر من الحد المسموح (10 ميجابايت).');
+      e.target.value = '';
+      return;
+    }
+
+    const lowerName = file.name.toLowerCase();
+    const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
+    const isSupportedImage = /^image\/(jpeg|png|webp)$/.test(file.type) || /\.(jpe?g|png|webp)$/.test(lowerName);
+    if (!isPdf && !isSupportedImage) {
+      alert('ارفع ملف PDF أو صورة بصيغة JPG أو PNG أو WebP.');
+      e.target.value = '';
       return;
     }
 
@@ -379,6 +471,11 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     reader.onloadend = () => {
       setAttachmentPreview(reader.result as string);
       inputFieldRef.current?.focus();
+    };
+    reader.onerror = () => {
+      setVoiceError('تعذر قراءة الملف. جرّب اختيار الملف مرة أخرى.');
+      setAttachmentName('');
+      setAttachmentPreview(null);
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -399,11 +496,11 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
               </h1>
               <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 font-bold flex items-center gap-1">
                 <span>🧠</span>
-                <span>ذاكرة المحادثات مفعّلة</span>
+                <span>سياق آخر ٨ رسائل</span>
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              يتذكر سياق حديثك وأسئلتك السابقة في كل محادثة ويشرح بالخطوات والنماذج الوزارية
+              يراعي آخر رسائلك في المحادثة ويشرح بالخطوات وبأسلوب مناسب لمنهجك
             </p>
           </div>
         </div>
@@ -756,7 +853,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
             type="file"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            accept="image/*,application/pdf"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
             className="hidden"
           />
 
@@ -790,6 +887,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
           <input
             ref={inputFieldRef}
             type="text"
+            maxLength={4000}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}

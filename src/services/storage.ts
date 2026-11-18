@@ -484,9 +484,10 @@ export class LocalDatabaseEngine {
     conversationId: string,
     text: string,
     attachmentUrl?: string,
-    attachmentName?: string
+    attachmentName?: string,
+    enforceLocalQuota: boolean = true
   ): { userMsg: RoboMessage; quotaExceeded: boolean } {
-    return socialService.addUserMessageToConversation(userId, conversationId, text, attachmentUrl, attachmentName);
+    return socialService.addUserMessageToConversation(userId, conversationId, text, attachmentUrl, attachmentName, enforceLocalQuota);
   }
 
   public addAssistantMessageToConversation(

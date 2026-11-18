@@ -15,34 +15,11 @@ export interface GeminiContent {
   parts: GeminiPart[];
 }
 
-async function callGemini(contents: GeminiContent[]): Promise<string> {
-  const apiKey = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
-  if (!apiKey) return '';
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents,
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2048,
-          },
-        }),
-      }
-    );
-    if (!res.ok) {
-      console.warn('[Gemini Client Error]', res.status, await res.text());
-      return '';
-    }
-    const data = await res.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } catch (err) {
-    console.warn('[Gemini Call Failed]', err);
-    return '';
-  }
+async function callGemini(_contents: GeminiContent[]): Promise<string> {
+  // Provider credentials must never be compiled into the browser bundle.
+  // These non-chat helpers keep their deterministic local fallbacks until they
+  // have dedicated authenticated server endpoints.
+  return '';
 }
 
 // ============================================================
@@ -54,6 +31,26 @@ export interface RoboResponse {
   quotaExceeded?: boolean;
   usedQuota?: number;
   quotaLimit?: number;
+  remainingQuota?: number;
+  source?: 'server' | 'offline';
+}
+
+async function readFunctionError(error: unknown): Promise<Record<string, unknown> | null> {
+  const context = (error as { context?: { clone?: () => { json: () => Promise<unknown> } } } | null)?.context;
+  if (!context?.clone) return null;
+  try {
+    const body = await context.clone().json();
+    return body && typeof body === 'object' ? body as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function offlineRoboReply(hasAttachment: boolean): string {
+  const attachmentNote = hasAttachment
+    ? '\nلم أتمكن من تحليل المرفق الآن؛ احتفظ به وأعد المحاولة بعد عودة الخدمة.'
+    : '';
+  return 'خدمة روبو الذكية غير متاحة مؤقتًا، ومش هخمن لك إجابة ممكن تكون غلط. جرّب تاني بعد قليل، أو اكتب اسم المادة والدرس والسؤال بالتحديد عشان نكمل أول ما الخدمة ترجع.' + attachmentNote;
 }
 
 export async function askRoboServer(
@@ -61,135 +58,64 @@ export async function askRoboServer(
   message: string,
   _userTier: string = 'free',
   attachmentBase64?: string,
-  history: RoboMessage[] = []
+  history: RoboMessage[] = [],
+  curriculumContext = ''
 ): Promise<RoboResponse> {
-  // 1. Direct Gemini Call (Fast, reliable, and active with user API key)
-  const geminiKey = (import.meta.env.VITE_GEMINI_API_KEY || '').trim();
-  // Edge Function fallback only if no direct key is configured
-  if (!geminiKey && isSupabaseConfigured() && supabase) {
-    try {
-      const { data, error } = await supabase.functions.invoke('robo-tutor', {
-        body: {
-          message,
-          attachmentBase64,
-          history: history.slice(-8),
-        },
-      });
-
-      if (!error && data) {
-        if (data.quotaExceeded) {
-          return {
-            reply: data.message || 'عذراً، لقد استنفدت رصيدك اليومي من أسئلة روبو.',
-            quotaExceeded: true,
-            usedQuota: data.usedQuota,
-            quotaLimit: data.quotaLimit,
-          };
-        }
-        if (data.reply) {
-          return {
-            reply: data.reply,
-            usedQuota: data.usedQuota,
-            quotaLimit: data.quotaLimit,
-          };
-        }
-      }
-    } catch (edgeErr) {
-      console.warn('[robo-tutor Edge Function]', edgeErr);
-    }
+  const normalizedMessage = message.trim();
+  if (normalizedMessage.length > 4000) {
+    return { reply: 'خلّي السؤال في ٤٠٠٠ حرف أو أقل، وقسّمه لو محتاج شرح أكتر.', source: 'offline' };
+  }
+  if (!isSupabaseConfigured() || !supabase) {
+    return { reply: offlineRoboReply(Boolean(attachmentBase64)), source: 'offline' };
   }
 
-  // 2. Secondary local fallback (Developer local testing or Educational Guide)
   try {
-    const isHintRequested = message.includes('تلميح') || message.includes('hint');
-    const isPdf = Boolean(attachmentBase64 && attachmentBase64.includes('application/pdf'));
-
-    const systemInstruction =
-      'أنت "روبو" المساعد الذكي والمعلم الخاص لطلاب الصف الثالث الإعدادي في منصة كوكب تالتة إعدادي.\n' +
-      'قواعد الإجابة:\n' +
-      '1. أجب عن أي سؤال يسأله الطالب بدون استثناء — سواء كان في المنهج الدراسي أو خارجه أو في أي موضوع آخر. لا ترفض أي سؤال أبداً ولا تقل "لا أستطيع الإجابة".\n' +
-      '2. الإجابة باللغة العربية الفصحى المبسطة بأسلوب تربوي مشجع ومنظم.\n' +
-      '3. إذا كان السؤال في المنهج الدراسي: التزم بمنهج وزارة التربية والتعليم المصرية.\n' +
-      '4. تذكر سياق الحديث والرسائل السابقة وأجب بترابط تام.\n' +
-      '5. إذا كان السؤال مسألة رياضية أو فيزيائية: اكتب المعطيات، القانون، خطوات التعويض، والناتج النهائي مع الوحدة.\n' +
-      '6. إذا كان السؤال في النحو: قدم الإعراب الكامل والدقيق مع ذكر نوع الكلمة وعلامة الإعراب والسبب.\n' +
-      '7. إذا كان في الدراسات: اذكر الأسباب والنتائج وأهم الشخصيات والتواريخ بنقاط محددة. قبل تقديم الإجابة، ابحث بدقة وتأكد من صحة المعلومات من المصادر الموثوقة؛ إذا كان ذلك ممكنًا، أدرج إشارة إلى المصدر أو رابطًا مختصرًا.\\n' +
-      (isHintRequested
-        ? '8. الطالب طلب تلميحاً فقط: قدّم مفتاح الحل والخطوة الأولى دون إعطاء الإجابة النهائية.\n'
-        : '8. قدم الإجابة النموذجية الكاملة مع الشرح الوافي.\n') +
-      (isPdf
-        ? '9. [ملف PDF مرفق]: قام الطالب بإرفاق مستند أو مذكرة أو امتحان بصيغة PDF. اقرأ محتواه بالكامل بدقة، وأجب عن أسئلة واستفسارات الطالب حوله، ولخّص المفاهيم الصعبة أو حل المسائل والأسئلة الواردة فيه بالتفصيل خطوة بخطوة.\n'
-        : attachmentBase64
-        ? '9. [قاعدة الصور]: الصورة لسؤال أو مسألة. افحصها واستخرج النص بدقة وأجب عنه بشكل كامل ومنظم.\n'
-        : '');
-
-    const contents: GeminiContent[] = [];
-
-    // Filter out seed messages and take up to the last 10 previous messages for context
-    const cleanHistory = history.filter(
-      (m) => !m.id.startsWith('msg-seed') && m.text && m.text.trim().length > 0
-    );
-    const recentHistory = cleanHistory.slice(-10);
-
-    // If there is previous history, build the multi-turn sequence
-    if (recentHistory.length > 0) {
-      recentHistory.forEach((turn, idx) => {
-        const isUser = turn.sender === 'user';
-        let turnText = turn.text;
-        if (idx === 0 && isUser) {
-          turnText = systemInstruction + '\n\n' + turnText;
-        }
-        contents.push({
-          role: isUser ? 'user' : 'model',
-          parts: [{ text: turnText }],
-        });
-      });
-    }
-
-    // Now append the current user turn
-    const currentParts: GeminiPart[] = [];
-    const currentText =
-      contents.length === 0
-        ? systemInstruction + '\n\nسؤال الطالب: ' + message
-        : message;
-
-    currentParts.push({ text: currentText });
-
-    // Parse attachmentBase64 (data:image/... or data:application/pdf;base64,...) and send multimodal inlineData
-    if (attachmentBase64) {
-      const match = attachmentBase64.match(/^data:([^;]+);base64,(.+)$/);
-      if (match) {
-        currentParts.push({
-          inlineData: {
-            mimeType: match[1],
-            data: match[2],
-          },
-        });
-      } else {
-        currentParts.push({
-          inlineData: {
-            mimeType: attachmentBase64.includes('pdf') ? 'application/pdf' : 'image/jpeg',
-            data: attachmentBase64,
-          },
-        });
-      }
-    }
-
-    contents.push({
-      role: 'user',
-      parts: currentParts,
+    const { data, error } = await supabase.functions.invoke('robo-tutor', {
+      body: {
+        message: normalizedMessage,
+        attachmentBase64,
+        curriculumContext: curriculumContext.slice(0, 6000),
+        history: history
+          .filter((item) => !item.id.startsWith('msg-seed') && item.text.trim())
+          .slice(-8)
+          .map(({ sender, text }) => ({ sender, text: text.slice(0, 2000) })),
+      },
     });
 
-    const reply = await callGemini(contents);
-    if (reply && reply.trim()) {
-      return { reply: reply.trim() };
+    const response = data && typeof data === 'object' ? data as Record<string, unknown> : null;
+    const errorBody = error ? await readFunctionError(error) : null;
+    const payload = { ...(errorBody || {}), ...(response || {}) };
+    if (payload?.quotaExceeded === true) {
+      const usedQuota = Number(payload.usedQuota) || 0;
+      const quotaLimit = Number(payload.quotaLimit) || 0;
+      return {
+        reply: typeof payload.message === 'string' ? payload.message : 'انتهت حصتك اليومية من أسئلة روبو.',
+        quotaExceeded: true,
+        usedQuota,
+        quotaLimit,
+        remainingQuota: Math.max(0, quotaLimit - usedQuota),
+        source: 'server',
+      };
     }
-    return { reply: '' };
-  } catch (error) {
-    console.warn('Gemini API error:', error);
-    return { reply: '' };
+    if (!error && typeof payload?.reply === 'string' && payload.reply.trim()) {
+      const usedQuota = Number(payload.usedQuota);
+      const quotaLimit = Number(payload.quotaLimit);
+      return {
+        reply: payload.reply.trim(),
+        usedQuota: Number.isFinite(usedQuota) ? usedQuota : undefined,
+        quotaLimit: Number.isFinite(quotaLimit) ? quotaLimit : undefined,
+        remainingQuota: Number.isFinite(usedQuota) && Number.isFinite(quotaLimit)
+          ? Math.max(0, quotaLimit - usedQuota)
+          : undefined,
+        source: 'server',
+      };
+    }
+  } catch (edgeErr) {
+    console.warn('[robo-tutor Edge Function]', edgeErr);
   }
-}
 
+  return { reply: offlineRoboReply(Boolean(attachmentBase64)), source: 'offline' };
+}
 // ============================================================
 // AI Question Generator — Egyptian 3rd Prep Exam Standard
 // ============================================================

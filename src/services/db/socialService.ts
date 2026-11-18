@@ -487,7 +487,8 @@ export class SocialService {
     conversationId: string,
     text: string,
     attachmentUrl?: string,
-    attachmentName?: string
+    attachmentName?: string,
+    enforceLocalQuota: boolean = true
   ): { userMsg: RoboMessage; quotaExceeded: boolean } {
     const { remaining } = this.getRoboDailyUsage(userId);
     const userMsg: RoboMessage = {
@@ -499,11 +500,11 @@ export class SocialService {
       createdAt: new Date().toISOString(),
     };
 
-    if (remaining <= 0) {
+    if (enforceLocalQuota && remaining <= 0) {
       return { userMsg, quotaExceeded: true };
     }
 
-    this.incrementRoboDailyUsage(userId);
+    if (enforceLocalQuota) this.incrementRoboDailyUsage(userId);
 
     const all = this.getRoboConversationsStorage();
     let convList = all[userId] || [];
