@@ -29,48 +29,6 @@ interface RoboAiViewProps {
   onUpgradeClick?: () => void;
 }
 
-function getRoboCurriculumContext(question: string): string {
-  const normalize = (value: string) => value
-    .normalize('NFD')
-    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ى/g, 'ي')
-    .toLowerCase();
-  const ignoredWords = new Set(['ما', 'ماذا', 'كيف', 'هل', 'هو', 'هي', 'في', 'من', 'عن', 'على', 'الي', 'ده', 'دي', 'دا', 'مع', 'انا', 'انت', 'شرح', 'اشرح', 'حل', 'السؤال']);
-  const queryTokens = [...new Set(normalize(question).match(/[\p{L}\p{N}]+/gu) || [])]
-    .filter((token) => token.length > 2 && !ignoredWords.has(token));
-  if (!queryTokens.length) return '';
-
-  const subjects = db.getSubjects();
-  const units = db.getUnits();
-  const candidates = db.getLessons().map((lesson) => {
-    const subject = subjects.find((item) => item.id === lesson.subjectId);
-    const unit = units.find((item) => item.id === lesson.unitId);
-    const title = normalize(lesson.title || '');
-    const unitTitle = normalize(unit?.title || '');
-    const subjectTitle = normalize(subject?.nameAr || '');
-    const summary = normalize(lesson.summary || '');
-    const content = normalize((lesson.contentHtml || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;|&#160;/g, ' '));
-    const score = queryTokens.reduce((total, token) => total +
-      (title.includes(token) ? 5 : 0) +
-      (unitTitle.includes(token) ? 3 : 0) +
-      (subjectTitle.includes(token) ? 2 : 0) +
-      (summary.includes(token) ? 2 : 0) +
-      (content.includes(token) ? 1 : 0), 0);
-    return { lesson, subject, unit, score, content: (lesson.contentHtml || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() };
-  }).filter((item) => item.score >= 5)
-    .sort((a, b) => b.score - a.score);
-
-  const best = candidates[0];
-  if (!best) return '';
-  return [
-    `مرجع من محتوى المنصة — المادة: ${best.subject?.nameAr || 'غير محددة'}`,
-    `الوحدة: ${best.unit?.title || 'غير محددة'} | الدرس: ${best.lesson.title}`,
-    best.lesson.summary || '',
-    best.content.slice(0, 5000),
-  ].filter(Boolean).join('\n');
-}
-
 export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   const { user } = useAuth();
   const effectiveUser: UserProfile = user || {
@@ -105,6 +63,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const convMenuRef = useRef<HTMLDivElement | null>(null);
   const inputFieldRef = useRef<HTMLInputElement | null>(null);
+  const isSendingMessageRef = useRef(false);
   const baseTextRef = useRef<string>('');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -222,7 +181,9 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
   // Realtime cloud synchronization across devices
   useEffect(() => {
     const handleSync = () => {
-      if (effectiveUser?.id) {
+      // Ignore background refreshes while a request is appending both turns.
+      // The send flow reloads the completed conversation in its finally block.
+      if (effectiveUser?.id && !isSendingMessageRef.current) {
         const fresh = db.getRoboConversations(effectiveUser.id);
         setConversations(fresh);
       }
@@ -389,6 +350,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     }
 
     // 2. Start typing animation
+    isSendingMessageRef.current = true;
     setIsTyping(true);
 
     // Track whether we successfully saved a reply, to avoid double messages
@@ -402,8 +364,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
         userText,
         effectiveUser.subscriptionTier,
         savedAttach,
-        currentHistory,
-        getRoboCurriculumContext(userText)
+        currentHistory
       );
 
       if (serverRes?.quotaExceeded) {
@@ -441,6 +402,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
       }
       // 5. Update UI and always dismiss typing state
       reloadConversations(targetConvId);
+      isSendingMessageRef.current = false;
       setIsTyping(false);
       inputFieldRef.current?.focus();
     }

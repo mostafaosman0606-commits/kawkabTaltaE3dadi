@@ -58,8 +58,7 @@ export async function askRoboServer(
   message: string,
   _userTier: string = 'free',
   attachmentBase64?: string,
-  history: RoboMessage[] = [],
-  curriculumContext = ''
+  history: RoboMessage[] = []
 ): Promise<RoboResponse> {
   const normalizedMessage = message.trim();
   if (normalizedMessage.length > 4000) {
@@ -74,7 +73,6 @@ export async function askRoboServer(
       body: {
         message: normalizedMessage,
         attachmentBase64,
-        curriculumContext: curriculumContext.slice(0, 6000),
         history: history
           .filter((item) => !item.id.startsWith('msg-seed') && item.text.trim())
           .slice(-8)
