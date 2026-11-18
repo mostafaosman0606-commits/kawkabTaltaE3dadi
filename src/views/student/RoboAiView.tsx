@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
   Send,
   Image as ImageIcon,
@@ -21,6 +21,7 @@ import {
 import { db } from '../../services/storage';
 import { useAuth } from '../../services/authContext';
 import { askRoboServer } from '../../services/aiService';
+import { syncCloudDataToLocal } from '../../services/supabaseDb';
 import { RoboMessage, RoboConversation, UserProfile } from '../../types';
 
 interface RoboAiViewProps {
@@ -160,6 +161,21 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
       document.removeEventListener('mousedown', handleOutsideClick);
     };
   }, [isConvMenuOpen]);
+
+  // Realtime cloud synchronization across devices
+  useEffect(() => {
+    const handleSync = () => {
+      if (effectiveUser?.id) {
+        const fresh = db.getRoboConversations(effectiveUser.id);
+        setConversations(fresh);
+      }
+    };
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    if (effectiveUser?.id) {
+      syncCloudDataToLocal(effectiveUser.id).catch(() => {});
+    }
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, [effectiveUser?.id]);
 
   // Load conversations on mount & user change
   useEffect(() => {
@@ -307,6 +323,9 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     // 2. Start typing animation
     setIsTyping(true);
 
+    // Track whether we successfully saved a reply, to avoid double messages
+    let replyAdded = false;
+
     try {
       // 3. Ask Gemini AI with FULL conversation history memory!
       const currentHistory = activeConversation?.messages || [];
@@ -322,19 +341,23 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
         setShowQuotaWarning(true);
       }
 
-      const reply =
-        serverRes?.reply ||
-        'أهلاً بك يا بطل! أنا معك دائماً لشرح وفهم منهج الشهادة الإعدادية خطوة بخطوة 🌟.';
-      db.addAssistantMessageToConversation(effectiveUser.id, targetConvId, reply);
+      const reply = serverRes?.reply;
+      if (reply && reply.trim()) {
+        db.addAssistantMessageToConversation(effectiveUser.id, targetConvId, reply);
+        replyAdded = true;
+      }
     } catch (err) {
       console.warn('Gemini chat error:', err);
-      db.addAssistantMessageToConversation(
-        effectiveUser.id,
-        targetConvId,
-        'أهلاً بك يا بطل! استخرج المعطيات والمفهوم الرئيسي واكتب لي الخطوة الأولى وسنراجعها سوياً خطوة بخطوة! 🌟'
-      );
     } finally {
-      // 4. Update UI and always dismiss typing state
+      // 4. If no reply was saved (error or empty), show a friendly error message once
+      if (!replyAdded) {
+        db.addAssistantMessageToConversation(
+          effectiveUser.id,
+          targetConvId,
+          'عذراً، واجهت مشكلة في الاتصال. يرجى المحاولة مرة أخرى. 🔄'
+        );
+      }
+      // 5. Update UI and always dismiss typing state
       reloadConversations(targetConvId);
       setIsTyping(false);
       inputFieldRef.current?.focus();

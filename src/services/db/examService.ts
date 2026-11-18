@@ -21,9 +21,9 @@ import { curriculumService } from './curriculumService';
 
 export const INITIAL_EXAMINATIONS: Examination[] = [
   {
-    id: 'e45903c7-4eb2-43bb-a5d2-0601f016d934',
+    id: '89cee155-0747-47bf-aac6-8a2b9b231ef7',
     subjectId: '782537e8-0db9-47b7-9296-60d7a21f146e', // arabic
-    title: 'امتحان النحو الشامل - الوحدة الأولى (اسم الفاعل وصيغ المبالغة)',
+    title: 'امتحان شامل: المشتقات وأعمالها الأدبية',
     description: 'اختبار تقييمي معتمد يحاكي مواصفات الورقة الامتحانية لوزارة التربية والتعليم 2026.',
     timeLimitMinutes: 20,
     passingPercentage: 50,
@@ -37,9 +37,9 @@ export const INITIAL_EXAMINATIONS: Examination[] = [
     createdAt: '2026-09-01T08:00:00Z',
   },
   {
-    id: 'f56014d8-5fc3-44cc-b6e3-1712f127e045',
+    id: '393d690b-da60-48e5-aa2a-f20fa73466ed',
     subjectId: '782537e8-0db9-47b7-9296-60d7a21f1470', // science
-    title: 'امتحان تجريبي: القوى والحركة والسرعة المنتظمة',
+    title: 'اختبار تجريبي: القوى والحركة والسرعة',
     description: 'أسئلة معيارية تغطي مفاهيم السرعة، العجلة، والتمثيل البياني للحركة.',
     timeLimitMinutes: 25,
     passingPercentage: 60,
@@ -169,9 +169,19 @@ export class ExamService {
   // ── EXAM ATTEMPTS & GRADING ───────────────────────────────────────────────
   public getExamAttempts(studentId?: string, examId?: string): ExamAttempt[] {
     let attempts = storageEngine.get<ExamAttempt[]>(STORAGE_KEYS.ATTEMPTS, []);
-    if (studentId) attempts = attempts.filter((a) => a.studentId === studentId);
-    if (examId) attempts = attempts.filter((a) => a.examId === examId);
-    return attempts.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+    if (studentId) {
+      const sid = studentId.toLowerCase();
+      attempts = attempts.filter((a) => a.studentId?.toLowerCase() === sid);
+    }
+    if (examId) {
+      const eid = examId.toLowerCase();
+      attempts = attempts.filter((a) => a.examId?.toLowerCase() === eid);
+    }
+    return attempts.sort((a, b) => {
+      const tb = new Date(b.submittedAt || b.startedAt || 0).getTime();
+      const ta = new Date(a.submittedAt || a.startedAt || 0).getTime();
+      return tb - ta;
+    });
   }
 
   public getAttemptById(id: string): ExamAttempt | null {

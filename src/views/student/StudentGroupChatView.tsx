@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Send,
   Upload,
@@ -20,6 +20,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { db } from '../../services/storage';
+import { sbGetStudentGroupMessages, sbSendStudentGroupMessage, sbSubscribeToStudentGroupMessages } from '../../services/supabaseDb';
 import { useAuth } from '../../services/authContext';
 import { StudentGroupMessage, UserProfile } from '../../types';
 
@@ -164,19 +165,44 @@ export const StudentGroupChatView: React.FC<StudentGroupChatViewProps> = ({ onBa
     ];
   }, [realSupervisorsAndTeachers, activeStudentId, activeStudentName, isStaff, targetStudent?.avatarUrl]);
 
-  // Load messages from local storage
+  // Load messages — first from localStorage (instant), then from Supabase (fresh)
   const reloadMessages = () => {
     const list = db.getStudentGroupMessages(activeStudentId);
     setMessages([...list]);
   };
 
   useEffect(() => {
+    // Load from localStorage immediately for instant display
     reloadMessages();
-    // Live polling to receive actual teacher/student responses in real time
-    const timer = setInterval(() => {
-      reloadMessages();
-    }, 2500);
-    return () => clearInterval(timer);
+
+    // Then fetch fresh data from Supabase and merge into state
+    sbGetStudentGroupMessages(activeStudentId).then((cloudMsgs) => {
+      if (cloudMsgs.length > 0) {
+        setMessages((prev) => {
+          const idSet = new Set(prev.map((m) => m.id));
+          const merged = [...prev];
+          cloudMsgs.forEach((cm) => {
+            if (!idSet.has(cm.id)) merged.push(cm);
+          });
+          merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+          return merged;
+        });
+      }
+    });
+
+    // Subscribe to Supabase realtime for new messages
+    const unsubscribe = sbSubscribeToStudentGroupMessages(activeStudentId, (newMsg) => {
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+      });
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, [activeStudentId]);
 
   // Auto-scroll to bottom on new messages
@@ -260,6 +286,17 @@ export const StudentGroupChatView: React.FC<StudentGroupChatViewProps> = ({ onBa
       text: textToSend,
       attachmentUrl: imageToSend,
     });
+
+    // Also persist to Supabase for cross-device sync
+    sbSendStudentGroupMessage(
+      activeStudentId,
+      textToSend,
+      imageToSend,
+      user?.id || activeStudentId,
+      user?.fullName || (isStaff ? 'المعلم' : 'الطالب'),
+      senderRole,
+      senderBadge
+    ).catch((e) => console.warn('[Group Chat Supabase send]', e));
 
     if (isStaff && targetStudent) {
       db.createNotification({

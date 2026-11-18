@@ -19,6 +19,7 @@ import {
 import confetti from 'canvas-confetti';
 import { db } from '../../services/storage';
 import { useAuth } from '../../services/authContext';
+import { syncCloudDataToLocal } from '../../services/supabaseDb';
 import { StudentScheduleSlot, StudentTask } from '../../types';
 
 interface StudentScheduleViewProps {
@@ -70,6 +71,16 @@ export const StudentScheduleView: React.FC<StudentScheduleViewProps> = ({ onBack
     setScheduleSlots(db.getStudentSchedule(studentId));
     setTasks(db.getStudentTasks(studentId));
   };
+
+  // Realtime cloud synchronization across devices
+  React.useEffect(() => {
+    const handleSync = () => reloadData();
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    if (user?.id) {
+      syncCloudDataToLocal(user.id).catch(() => {});
+    }
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, [studentId, user?.id]);
 
   // Add Schedule Slot Handler
   const handleAddSlot = (e: React.FormEvent) => {

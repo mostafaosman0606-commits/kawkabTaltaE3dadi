@@ -29,7 +29,7 @@ import type {
   Unit, Examination, Question,
   Announcement, StudentBadge, StudentGoal, DailyStreak,
   Flashcard, SubscriptionRequest, TeacherAssignment,
-  StudentGroupMessage,
+  StudentGroupMessage, StudentScheduleSlot, StudentTask,
 } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -536,6 +536,9 @@ export function setupSupabaseRealtimeSync(onSync: () => void): () => void {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_attempts' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_conversations' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_messages' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_group_messages' }, onSync)
       .subscribe();
 
     return () => {
@@ -1015,6 +1018,205 @@ export async function sbDeleteFlashcard(cardId: string): Promise<boolean> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// STUDENT SCHEDULE & TASKS (Cloud Sync across all devices)
+// ─────────────────────────────────────────────────────────────────────────────
+export async function sbGetStudentSchedule(studentId: string): Promise<StudentScheduleSlot[]> {
+  if (!isSupabaseConfigured() || !supabase || !isValidUUID(studentId)) return [];
+  // 1. Try native table first
+  try {
+    const { data, error } = await supabase.from('student_schedule').select('*').eq('student_id', studentId);
+    if (!error && data && data.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return data.map((r: any): StudentScheduleSlot => ({
+        id: r.id,
+        studentId: r.student_id,
+        dayOfWeek: r.day_of_week,
+        subjectId: r.subject_id,
+        subjectName: r.subject_name,
+        title: r.title,
+        startTime: r.start_time,
+        endTime: r.end_time,
+        notes: r.notes || undefined,
+        color: r.color || undefined,
+        createdAt: r.created_at || new Date().toISOString(),
+      }));
+    }
+  } catch {}
+
+  // 2. Fallback cloud store via student's private record
+  try {
+    const { data: convs } = await supabase
+      .from('ai_conversations')
+      .select('id')
+      .eq('user_id', studentId)
+      .eq('title', '__kawkab_cloud_schedule__')
+      .limit(1);
+    if (convs && convs.length > 0) {
+      const { data: msgs } = await supabase
+        .from('ai_messages')
+        .select('text')
+        .eq('conversation_id', convs[0].id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (msgs && msgs[0]?.text) {
+        return JSON.parse(msgs[0].text);
+      }
+    }
+  } catch {}
+  return [];
+}
+
+export async function sbSaveStudentSchedule(studentId: string, slots: StudentScheduleSlot[]): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase || !isValidUUID(studentId)) return false;
+  // 1. Try native table
+  try {
+    const rows = slots.map((s) => ({
+      id: ensureUUID(s.id),
+      student_id: studentId,
+      day_of_week: s.dayOfWeek,
+      subject_id: isValidUUID(s.subjectId) ? s.subjectId : null,
+      subject_name: s.subjectName,
+      title: s.title,
+      start_time: s.startTime,
+      end_time: s.endTime,
+      notes: s.notes || null,
+      color: s.color || null,
+    }));
+    const { error } = await supabase.from('student_schedule').upsert(rows, { onConflict: 'id' });
+    if (!error) return true;
+  } catch {}
+
+  // 2. Cloud Fallback Store
+  try {
+    let convId = '';
+    const { data: convs } = await supabase
+      .from('ai_conversations')
+      .select('id')
+      .eq('user_id', studentId)
+      .eq('title', '__kawkab_cloud_schedule__')
+      .limit(1);
+    if (convs && convs.length > 0) {
+      convId = convs[0].id;
+    } else {
+      const newConvId = ensureUUID(`conv-sched-${studentId}`);
+      const { error: cErr } = await supabase
+        .from('ai_conversations')
+        .upsert({ id: newConvId, user_id: studentId, title: '__kawkab_cloud_schedule__' }, { onConflict: 'id' });
+      if (!cErr) convId = newConvId;
+    }
+    if (convId) {
+      const msgId = ensureUUID(`msg-sched-${studentId}`);
+      await supabase
+        .from('ai_messages')
+        .upsert({
+          id: msgId,
+          conversation_id: convId,
+          sender: 'assistant',
+          text: JSON.stringify(slots),
+        }, { onConflict: 'id' });
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+export async function sbGetStudentTasks(studentId: string): Promise<StudentTask[]> {
+  if (!isSupabaseConfigured() || !supabase || !isValidUUID(studentId)) return [];
+  // 1. Try native table first
+  try {
+    const { data, error } = await supabase.from('student_tasks').select('*').eq('student_id', studentId).order('created_at', { ascending: false });
+    if (!error && data && data.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return data.map((r: any): StudentTask => ({
+        id: r.id,
+        studentId: r.student_id,
+        title: r.title,
+        subjectName: r.subject_name || undefined,
+        dueDate: r.due_date || undefined,
+        completed: r.completed ?? false,
+        priority: r.priority || 'medium',
+        createdAt: r.created_at,
+        completedAt: r.completed_at || undefined,
+      }));
+    }
+  } catch {}
+
+  // 2. Fallback cloud store via student's private record
+  try {
+    const { data: convs } = await supabase
+      .from('ai_conversations')
+      .select('id')
+      .eq('user_id', studentId)
+      .eq('title', '__kawkab_cloud_tasks__')
+      .limit(1);
+    if (convs && convs.length > 0) {
+      const { data: msgs } = await supabase
+        .from('ai_messages')
+        .select('text')
+        .eq('conversation_id', convs[0].id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (msgs && msgs[0]?.text) {
+        return JSON.parse(msgs[0].text);
+      }
+    }
+  } catch {}
+  return [];
+}
+
+export async function sbSaveStudentTasks(studentId: string, tasks: StudentTask[]): Promise<boolean> {
+  if (!isSupabaseConfigured() || !supabase || !isValidUUID(studentId)) return false;
+  // 1. Try native table
+  try {
+    const rows = tasks.map((t) => ({
+      id: ensureUUID(t.id),
+      student_id: studentId,
+      title: t.title,
+      subject_name: t.subjectName || null,
+      due_date: t.dueDate || null,
+      completed: t.completed,
+      priority: t.priority,
+      completed_at: t.completedAt || null,
+    }));
+    const { error } = await supabase.from('student_tasks').upsert(rows, { onConflict: 'id' });
+    if (!error) return true;
+  } catch {}
+
+  // 2. Cloud Fallback Store
+  try {
+    let convId = '';
+    const { data: convs } = await supabase
+      .from('ai_conversations')
+      .select('id')
+      .eq('user_id', studentId)
+      .eq('title', '__kawkab_cloud_tasks__')
+      .limit(1);
+    if (convs && convs.length > 0) {
+      convId = convs[0].id;
+    } else {
+      const newConvId = ensureUUID(`conv-tasks-${studentId}`);
+      const { error: cErr } = await supabase
+        .from('ai_conversations')
+        .upsert({ id: newConvId, user_id: studentId, title: '__kawkab_cloud_tasks__' }, { onConflict: 'id' });
+      if (!cErr) convId = newConvId;
+    }
+    if (convId) {
+      const msgId = ensureUUID(`msg-tasks-${studentId}`);
+      await supabase
+        .from('ai_messages')
+        .upsert({
+          id: msgId,
+          conversation_id: convId,
+          sender: 'assistant',
+          text: JSON.stringify(tasks),
+        }, { onConflict: 'id' });
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AI CONVERSATIONS
 // ─────────────────────────────────────────────────────────────────────────────
 export async function sbGetConversations(userId: string): Promise<RoboConversation[]> {
@@ -1097,7 +1299,15 @@ export async function sbGetStudentGroupMessages(studentId: string): Promise<Stud
   }
 }
 
-export async function sbSendStudentGroupMessage(studentId: string, text: string, attachmentUrl?: string): Promise<boolean> {
+export async function sbSendStudentGroupMessage(
+  studentId: string,
+  text: string,
+  attachmentUrl?: string,
+  senderId?: string,
+  senderName?: string,
+  senderRole?: string,
+  senderBadge?: string
+): Promise<boolean> {
   if (!isSupabaseConfigured() || !supabase) return false;
   if (!requireUUIDFields('sbSendStudentGroupMessage', { studentId })) return false;
   try {
@@ -1107,6 +1317,10 @@ export async function sbSendStudentGroupMessage(studentId: string, text: string,
         student_id: studentId,
         text,
         attachment_url: attachmentUrl || null,
+        sender_id: senderId || null,
+        sender_name: senderName || null,
+        sender_role: senderRole || null,
+        sender_badge: senderBadge || null,
       });
     if (error) {
       console.warn('[sbSendStudentGroupMessage]', error.message);
@@ -1157,6 +1371,8 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
       badgesList,
       goalsList,
       convsList,
+      cloudSchedule,
+      cloudTasks,
       allProfiles,
       allAttempts,
       cloudSubjects,
@@ -1174,6 +1390,8 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
       userId ? sbGetBadges(userId) : Promise.resolve([]),
       userId ? sbGetGoals(userId) : Promise.resolve([]),
       userId ? sbGetConversations(userId) : Promise.resolve([]),
+      userId ? sbGetStudentSchedule(userId) : Promise.resolve([]),
+      userId ? sbGetStudentTasks(userId) : Promise.resolve([]),
       sbGetAllProfiles(),
       sbGetAllAttempts(),
       sbGetSubjects(),
@@ -1252,7 +1470,8 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
           } else {
             // Update local attempt if cloud is graded or has newer results
             if (ca.status === 'graded' || existing.status !== 'graded' || ca.totalScore !== existing.totalScore) {
-              attemptMap.set(ca.id, { ...existing, ...ca });
+              // Preserve local `answers` field which cloud record may not have
+              attemptMap.set(ca.id, { ...existing, ...ca, answers: (ca as any).answers || existing?.answers });
             }
           }
         });
@@ -1366,6 +1585,20 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
         const localAll = JSON.parse(localStorage.getItem('kawkab_robo_conversations_v1') || '{}');
         localAll[userId] = convsList;
         localStorage.setItem('kawkab_robo_conversations_v1', JSON.stringify(localAll));
+      } catch {}
+    }
+
+    // 9. Student Schedule
+    if (cloudSchedule && cloudSchedule.length > 0 && userId) {
+      try {
+        localStorage.setItem('kawkab_student_schedule', JSON.stringify(cloudSchedule));
+      } catch {}
+    }
+
+    // 10. Student Tasks
+    if (cloudTasks && cloudTasks.length > 0 && userId) {
+      try {
+        localStorage.setItem('kawkab_student_tasks', JSON.stringify(cloudTasks));
       } catch {}
     }
     // Global 3. Subjects synchronization across all devices (Cloud is Authoritative Source of Truth)

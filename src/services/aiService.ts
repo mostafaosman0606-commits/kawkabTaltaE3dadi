@@ -20,7 +20,7 @@ async function callGemini(contents: GeminiContent[]): Promise<string> {
   if (!apiKey) return '';
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -180,22 +180,14 @@ export async function askRoboServer(
     });
 
     const reply = await callGemini(contents);
-    if (reply) {
-      return { reply };
+    if (reply && reply.trim()) {
+      return { reply: reply.trim() };
     }
-    return { reply: generateEducationalFallback(message) };
+    return { reply: '' };
   } catch (error) {
     console.warn('Gemini API error:', error);
-    return { reply: generateEducationalFallback(message) };
+    return { reply: '' };
   }
-}
-
-function generateEducationalFallback(message: string): string {
-  const q = (message || '').toLowerCase();
-  if (q.includes('\u062a\u0644\u0645\u064a\u062d') || q.includes('hint')) {
-    return '\uD83D\uDCA1 \u062a\u0644\u0645\u064a\u062d \u0631\u0648\u0628\u0648: \u062d\u062f\u062f \u0627\u0644\u0645\u0637\u0644\u0648\u0628 \u0648\u0627\u0644\u0645\u0639\u0637\u064a\u0627\u062a \u0648\u0627\u0643\u062a\u0628 \u0627\u0644\u062e\u0637\u0648\u0629 \u0627\u0644\u0623\u0648\u0644\u0649! \uD83D\uDE80';
-  }
-  return '\u0633\u0624\u0627\u0644 \u0645\u0645\u062a\u0627\u0632! \uD83C\uDF1F \u0627\u0633\u062a\u062e\u0631\u062c \u0627\u0644\u0645\u0639\u0637\u064a\u0627\u062a \u0648\u062d\u062f\u062f \u0627\u0644\u0645\u0641\u0647\u0648\u0645 \u0627\u0644\u0631\u0626\u064a\u0633\u064a. \u0647\u0644 \u062a\u0631\u064a\u062f \u062a\u0644\u0645\u064a\u062d\u0627\u064b \u0623\u0648 \u0634\u0631\u062d\u0627\u064b \u0644\u0644\u0642\u0627\u0639\u062f\u0629\u061f';
 }
 
 // ============================================================

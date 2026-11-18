@@ -34,6 +34,8 @@ import {
   sbSaveGoal,
   sbSaveFlashcards,
   sbDeleteFlashcard,
+  sbSaveStudentSchedule,
+  sbSaveStudentTasks,
 } from '../supabaseDb';
 import { profileService } from './profileService';
 import { curriculumService } from './curriculumService';
@@ -910,29 +912,44 @@ export class SocialService {
 
   public saveStudentScheduleSlot(slot: Omit<StudentScheduleSlot, 'id' | 'createdAt'> & { id?: string }): StudentScheduleSlot {
     const all = storageEngine.get<StudentScheduleSlot[]>(STORAGE_KEYS.STUDENT_SCHEDULE, []).filter((s) => s.studentId !== 'default');
+    let savedSlot: StudentScheduleSlot;
     if (slot.id) {
       const idx = all.findIndex((s) => s.id === slot.id);
       if (idx !== -1) {
         all[idx] = { ...all[idx], ...slot } as StudentScheduleSlot;
-        storageEngine.set(STORAGE_KEYS.STUDENT_SCHEDULE, all);
-        storageEngine.notifyDataChanged();
-        return all[idx];
+        savedSlot = all[idx];
+      } else {
+        savedSlot = {
+          ...slot,
+          id: slot.id,
+          createdAt: new Date().toISOString(),
+        } as StudentScheduleSlot;
+        all.push(savedSlot);
       }
+    } else {
+      savedSlot = {
+        ...slot,
+        id: `slot-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        createdAt: new Date().toISOString(),
+      };
+      all.push(savedSlot);
     }
-    const newSlot: StudentScheduleSlot = {
-      ...slot,
-      id: `slot-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      createdAt: new Date().toISOString(),
-    };
-    all.push(newSlot);
     storageEngine.set(STORAGE_KEYS.STUDENT_SCHEDULE, all);
+    const studentSlots = all.filter((s) => s.studentId === savedSlot.studentId);
+    sbSaveStudentSchedule(savedSlot.studentId, studentSlots).catch(() => {});
     storageEngine.notifyDataChanged();
-    return newSlot;
+    return savedSlot;
   }
 
   public deleteStudentScheduleSlot(slotId: string): void {
-    const all = storageEngine.get<StudentScheduleSlot[]>(STORAGE_KEYS.STUDENT_SCHEDULE, []).filter((s) => s.id !== slotId && s.studentId !== 'default');
-    storageEngine.set(STORAGE_KEYS.STUDENT_SCHEDULE, all);
+    const all = storageEngine.get<StudentScheduleSlot[]>(STORAGE_KEYS.STUDENT_SCHEDULE, []).filter((s) => s.studentId !== 'default');
+    const target = all.find((s) => s.id === slotId);
+    const filtered = all.filter((s) => s.id !== slotId);
+    storageEngine.set(STORAGE_KEYS.STUDENT_SCHEDULE, filtered);
+    if (target?.studentId) {
+      const studentSlots = filtered.filter((s) => s.studentId === target.studentId);
+      sbSaveStudentSchedule(target.studentId, studentSlots).catch(() => {});
+    }
     storageEngine.notifyDataChanged();
   }
 
@@ -943,25 +960,35 @@ export class SocialService {
 
   public saveStudentTask(task: Omit<StudentTask, 'id' | 'createdAt' | 'completed'> & { id?: string; completed?: boolean }): StudentTask {
     const all = storageEngine.get<StudentTask[]>(STORAGE_KEYS.STUDENT_TASKS, []).filter((t) => t.studentId !== 'default');
+    let savedTask: StudentTask;
     if (task.id) {
       const idx = all.findIndex((t) => t.id === task.id);
       if (idx !== -1) {
         all[idx] = { ...all[idx], ...task } as StudentTask;
-        storageEngine.set(STORAGE_KEYS.STUDENT_TASKS, all);
-        storageEngine.notifyDataChanged();
-        return all[idx];
+        savedTask = all[idx];
+      } else {
+        savedTask = {
+          ...task,
+          id: task.id,
+          completed: task.completed ?? false,
+          createdAt: new Date().toISOString(),
+        } as StudentTask;
+        all.unshift(savedTask);
       }
+    } else {
+      savedTask = {
+        ...task,
+        completed: task.completed ?? false,
+        id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+        createdAt: new Date().toISOString(),
+      };
+      all.unshift(savedTask);
     }
-    const newTask: StudentTask = {
-      ...task,
-      completed: task.completed ?? false,
-      id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      createdAt: new Date().toISOString(),
-    };
-    all.unshift(newTask);
     storageEngine.set(STORAGE_KEYS.STUDENT_TASKS, all);
+    const studentTasks = all.filter((t) => t.studentId === savedTask.studentId);
+    sbSaveStudentTasks(savedTask.studentId, studentTasks).catch(() => {});
     storageEngine.notifyDataChanged();
-    return newTask;
+    return savedTask;
   }
 
   public toggleStudentTask(taskId: string): boolean {
@@ -971,13 +998,21 @@ export class SocialService {
     task.completed = !task.completed;
     task.completedAt = task.completed ? new Date().toISOString() : undefined;
     storageEngine.set(STORAGE_KEYS.STUDENT_TASKS, all);
+    const studentTasks = all.filter((t) => t.studentId === task.studentId);
+    sbSaveStudentTasks(task.studentId, studentTasks).catch(() => {});
     storageEngine.notifyDataChanged();
     return task.completed;
   }
 
   public deleteStudentTask(taskId: string): void {
-    const all = storageEngine.get<StudentTask[]>(STORAGE_KEYS.STUDENT_TASKS, []).filter((t) => t.id !== taskId && t.studentId !== 'default');
-    storageEngine.set(STORAGE_KEYS.STUDENT_TASKS, all);
+    const all = storageEngine.get<StudentTask[]>(STORAGE_KEYS.STUDENT_TASKS, []).filter((t) => t.studentId !== 'default');
+    const target = all.find((t) => t.id === taskId);
+    const filtered = all.filter((t) => t.id !== taskId);
+    storageEngine.set(STORAGE_KEYS.STUDENT_TASKS, filtered);
+    if (target?.studentId) {
+      const studentTasks = filtered.filter((t) => t.studentId === target.studentId);
+      sbSaveStudentTasks(target.studentId, studentTasks).catch(() => {});
+    }
     storageEngine.notifyDataChanged();
   }
 }
