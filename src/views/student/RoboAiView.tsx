@@ -430,7 +430,7 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
       </div>
 
       {/* Main Spacious Chat Panel */}
-      <div className="rounded-2xl glass-card border border-cyan-500/15 h-[650px] flex flex-col overflow-hidden bg-[#070c18]/95 shadow-2xl">
+      <div className="rounded-2xl glass-card border border-cyan-500/15 flex flex-col flex-1 overflow-hidden bg-[#070c18]/95 shadow-2xl">
         {/* Chat Header: Conversation Selector Dropdown + New Conversation Button */}
         <div className="p-3 sm:p-4 border-b border-slate-800 bg-slate-950/70 flex items-center justify-between gap-2 relative">
           {/* Conversation Switcher Dropdown */}
