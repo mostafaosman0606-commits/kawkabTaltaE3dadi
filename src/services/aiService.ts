@@ -1,5 +1,5 @@
 // ============================================================
-// AI Service — Secure Server-Side Execution via Supabase Edge Function
+// AI Service — Secure Server-Side Execution via Vercel API
 // Zero Hardcoded Client Secrets!
 // ============================================================
 
@@ -35,17 +35,6 @@ export interface RoboResponse {
   source?: 'server' | 'offline';
 }
 
-async function readFunctionError(error: unknown): Promise<Record<string, unknown> | null> {
-  const context = (error as { context?: { clone?: () => { json: () => Promise<unknown> } } } | null)?.context;
-  if (!context?.clone) return null;
-  try {
-    const body = await context.clone().json();
-    return body && typeof body === 'object' ? body as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
-}
-
 function offlineRoboReply(hasAttachment: boolean): string {
   const attachmentNote = hasAttachment
     ? '\nلم أتمكن من تحليل المرفق الآن؛ احتفظ به وأعد المحاولة بعد عودة الخدمة.'
@@ -69,20 +58,20 @@ export async function askRoboServer(
   }
 
   try {
-    const { data, error } = await supabase.functions.invoke('robo-tutor', {
-      body: {
-        message: normalizedMessage,
-        attachmentBase64,
-        history: history
-          .filter((item) => !item.id.startsWith('msg-seed') && item.text.trim())
-          .slice(-8)
-          .map(({ sender, text }) => ({ sender, text: text.slice(0, 2000) })),
-      },
-    });
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session?.access_token) {
+      return { reply: 'سجّل الدخول أولًا عشان تقدر تستخدم روبو.', source: 'offline' };
+    }
 
-    const response = data && typeof data === 'object' ? data as Record<string, unknown> : null;
-    const errorBody = error ? await readFunctionError(error) : null;
-    const payload = { ...(errorBody || {}), ...(response || {}) };
+    const response = await fetch('/api/robo-tutor', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ message: normalizedMessage }),
+    });
+    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (payload?.quotaExceeded === true) {
       const usedQuota = Number(payload.usedQuota) || 0;
       const quotaLimit = Number(payload.quotaLimit) || 0;
@@ -95,7 +84,22 @@ export async function askRoboServer(
         source: 'server',
       };
     }
-    if (!error && typeof payload?.reply === 'string' && payload.reply.trim()) {
+    if (response.status === 401) {
+      return { reply: 'جلستك انتهت. سجّل الدخول مرة أخرى ثم جرّب روبو.', source: 'offline' };
+    }
+    if (response.status === 429) {
+      const usedQuota = Number(payload.usedQuota) || 0;
+      const quotaLimit = Number(payload.quotaLimit) || 0;
+      return {
+        reply: 'انتهت حصتك اليومية من أسئلة روبو.',
+        quotaExceeded: true,
+        usedQuota,
+        quotaLimit,
+        remainingQuota: Math.max(0, quotaLimit - usedQuota),
+        source: 'server',
+      };
+    }
+    if (response.ok && typeof payload?.reply === 'string' && payload.reply.trim()) {
       const usedQuota = Number(payload.usedQuota);
       const quotaLimit = Number(payload.quotaLimit);
       return {
@@ -108,8 +112,9 @@ export async function askRoboServer(
         source: 'server',
       };
     }
-  } catch (edgeErr) {
-    console.warn('[robo-tutor Edge Function]', edgeErr);
+    console.warn('[robo-tutor API] Request failed with status:', response.status);
+  } catch (apiErr) {
+    console.warn('[robo-tutor API]', apiErr);
   }
 
   return { reply: offlineRoboReply(Boolean(attachmentBase64)), source: 'offline' };
