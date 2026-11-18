@@ -49,7 +49,7 @@ import { generateQuestionsFromText, gradeEssayWithAi, generateLessonFlashcardsWi
 import { ExamAttempt, Question, Subject, Lesson, Examination, TeacherHomework, TeacherMessage, TeacherScheduleSlot, AttendanceRecord, Flashcard } from '../../types';
 import { Navbar } from '../../components/Navbar';
 import { sendBrowserNotification } from '../../services/notifications';
-import { sbUploadLessonImage, sbDeleteLessonImage } from '../../services/supabaseDb';
+import { sbUploadLessonImage, sbDeleteLessonImage, syncCloudDataToLocal } from '../../services/supabaseDb';
 
 interface TeacherDashboardProps {
   onNavigateToStudent?: () => void;
@@ -92,6 +92,14 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
   }, [activeTab]);
+
+  // Synchronize cloud data on mount and listen to realtime updates from other devices
+  useEffect(() => {
+    const handleSync = () => forceRefresh();
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    syncCloudDataToLocal(user.id).catch(() => {});
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, [user.id]);
 
   // Live Database Queries
   const allSubjects = db.getSubjects();

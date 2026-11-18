@@ -132,7 +132,7 @@ export const INITIAL_UNITS: Unit[] = [
 
 export const INITIAL_LESSONS: Lesson[] = [
   {
-    id: 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380111',
+    id: '1ce597cf-d445-4f2a-b408-a777a60518d8',
     unitId: '528704a3-e7a2-4a4f-a170-292a9b8a32d2',
     subjectId: '782537e8-0db9-47b7-9296-60d7a21f146e',
     title: 'اسم الفاعل وصوغه وإعماله',
@@ -157,7 +157,7 @@ export const INITIAL_LESSONS: Lesson[] = [
     isPublished: true,
   },
   {
-    id: 'e0eebc99-9c0b-4ef8-bb6d-6bb9bd380121',
+    id: '6a9ad0ed-a7dd-4426-8249-c52274eac5bb',
     unitId: '64e6de64-4b40-41ab-a213-8eeae2083134',
     subjectId: 'b0d3c943-541f-42be-915f-ea47a2782f7c',
     title: 'الحركة في اتجاه واحد والسرعة المنتظمة',
@@ -224,6 +224,7 @@ export class CurriculumService {
       if (idx !== -1) {
         subs[idx] = { ...subs[idx], ...subject } as Subject;
         storageEngine.set(STORAGE_KEYS.SUBJECTS, subs);
+        storageEngine.notifyDataChanged();
         sbSaveSubject(subs[idx]).catch((e) => console.warn('[saveSubject] Cloud sync error:', e));
         return subs[idx];
       }
@@ -248,6 +249,7 @@ export class CurriculumService {
     };
     subs.push(newSub);
     storageEngine.set(STORAGE_KEYS.SUBJECTS, subs);
+    storageEngine.notifyDataChanged();
     sbSaveSubject(newSub).catch((e) => console.warn('[saveSubject] Cloud sync error:', e));
     return newSub;
   }
@@ -255,23 +257,13 @@ export class CurriculumService {
   public deleteSubject(id: string): void {
     const subs = storageEngine.get<Subject[]>(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS).filter((s) => s.id !== id);
     storageEngine.set(STORAGE_KEYS.SUBJECTS, subs);
+    storageEngine.notifyDataChanged();
   }
 
   public syncSubjectsFromCloud(cloudSubjects: Subject[]): void {
     if (!cloudSubjects || cloudSubjects.length === 0) return;
-    const local = storageEngine.get<Subject[]>(STORAGE_KEYS.SUBJECTS, INITIAL_SUBJECTS);
-    const map = new Map<string, Subject>();
-    local.forEach((s) => map.set(s.id, s));
-    cloudSubjects.forEach((cs) => {
-      for (const [key, val] of map.entries()) {
-        if (val.slug === cs.slug && key !== cs.id) {
-          map.delete(key);
-        }
-      }
-      const existing = map.get(cs.id);
-      map.set(cs.id, existing ? { ...existing, ...cs } : cs);
-    });
-    storageEngine.set(STORAGE_KEYS.SUBJECTS, Array.from(map.values()));
+    storageEngine.set(STORAGE_KEYS.SUBJECTS, cloudSubjects);
+    storageEngine.notifyDataChanged();
   }
 
   // ── UNITS ────────────────────────────────────────────────────────────────
@@ -290,6 +282,7 @@ export class CurriculumService {
       if (idx !== -1) {
         units[idx] = { ...units[idx], ...unit } as Unit;
         storageEngine.set(STORAGE_KEYS.UNITS, units);
+        storageEngine.notifyDataChanged();
         sbSaveUnitToCloud(units[idx] as Unit).catch((e) => console.warn('[saveUnit] Cloud sync error:', e));
         return units[idx];
       }
@@ -304,6 +297,7 @@ export class CurriculumService {
     };
     units.push(newUnit);
     storageEngine.set(STORAGE_KEYS.UNITS, units);
+    storageEngine.notifyDataChanged();
     sbSaveUnitToCloud(newUnit).catch((e) => console.warn('[saveUnit] Cloud sync error:', e));
     return newUnit;
   }
@@ -311,6 +305,7 @@ export class CurriculumService {
   public deleteUnit(id: string): void {
     const units = storageEngine.get<Unit[]>(STORAGE_KEYS.UNITS, INITIAL_UNITS).filter((u) => u.id !== id);
     storageEngine.set(STORAGE_KEYS.UNITS, units);
+    storageEngine.notifyDataChanged();
     sbDeleteUnit(id).catch((e) => console.warn('[deleteUnit] Cloud sync error:', e));
   }
 
@@ -329,55 +324,67 @@ export class CurriculumService {
 
   public saveLesson(lesson: Partial<Lesson>): Lesson {
     const lessons = storageEngine.get<Lesson[]>(STORAGE_KEYS.LESSONS, INITIAL_LESSONS);
+    let targetLesson: Lesson;
     if (lesson.id) {
       const idx = lessons.findIndex((l) => l.id === lesson.id);
       if (idx !== -1) {
         lessons[idx] = { ...lessons[idx], ...lesson } as Lesson;
-        storageEngine.set(STORAGE_KEYS.LESSONS, lessons);
-        sbSaveLessonToCloud(lessons[idx]).catch((e) => console.warn('[saveLesson] Cloud sync error:', e));
-        return lessons[idx];
+        targetLesson = lessons[idx];
+      } else {
+        targetLesson = lesson as Lesson;
+        lessons.push(targetLesson);
       }
+    } else {
+      const newLessonId = generateUUID();
+      targetLesson = {
+        id: newLessonId,
+        unitId: lesson.unitId || '',
+        subjectId: lesson.subjectId ? ensureUUID(lesson.subjectId) : '',
+        title: lesson.title || 'درس جديد',
+        teacherName: lesson.teacherName || 'أستاذ المادة',
+        orderIndex: lessons.length + 1,
+        contentHtml: lesson.contentHtml || '',
+        summary: lesson.summary,
+        videoUrl: lesson.videoUrl,
+        videoType: lesson.videoType || 'youtube',
+        pdfUrl: lesson.pdfUrl,
+        images: lesson.images || [],
+        durationMinutes: lesson.durationMinutes || 20,
+        isFreePreview: lesson.isFreePreview ?? false,
+        isPublished: lesson.isPublished ?? true,
+      };
+      lessons.push(targetLesson);
     }
-    const newLessonId = lesson.id && isValidUUID(lesson.id) ? lesson.id : generateUUID();
-    const newLesson: Lesson = {
-      id: newLessonId,
-      unitId: lesson.unitId || '',
-      subjectId: lesson.subjectId ? ensureUUID(lesson.subjectId) : '',
-      title: lesson.title || 'درس جديد',
-      teacherName: lesson.teacherName || 'أستاذ المادة',
-      orderIndex: lessons.length + 1,
-      contentHtml: lesson.contentHtml || '',
-      summary: lesson.summary,
-      videoUrl: lesson.videoUrl,
-      videoType: lesson.videoType || 'youtube',
-      pdfUrl: lesson.pdfUrl,
-      images: lesson.images || [],
-      durationMinutes: lesson.durationMinutes || 20,
-      isFreePreview: lesson.isFreePreview ?? false,
-      isPublished: lesson.isPublished ?? true,
-    };
-    lessons.push(newLesson);
+
     storageEngine.set(STORAGE_KEYS.LESSONS, lessons);
-    sbSaveLessonToCloud(newLesson).catch((e) => console.warn('[saveLesson] Cloud sync error:', e));
-    return newLesson;
+    storageEngine.notifyDataChanged();
+
+    sbSaveLessonToCloud(targetLesson)
+      .then((ok) => {
+        if (ok) {
+          storageEngine.notifyDataChanged();
+        }
+      })
+      .catch((e) => console.warn('[saveLesson] Cloud sync error:', e));
+
+    return targetLesson;
   }
 
   public deleteLesson(id: string): void {
     const lessons = storageEngine.get<Lesson[]>(STORAGE_KEYS.LESSONS, INITIAL_LESSONS).filter((l) => l.id !== id);
     storageEngine.set(STORAGE_KEYS.LESSONS, lessons);
-    sbDeleteLesson(id).catch((e) => console.warn('[deleteLesson] Cloud sync error:', e));
+    storageEngine.notifyDataChanged();
+    sbDeleteLesson(id)
+      .then(() => {
+        storageEngine.notifyDataChanged();
+      })
+      .catch((e) => console.warn('[deleteLesson] Cloud sync error:', e));
   }
 
   public syncLessonsFromCloud(cloudLessons: Lesson[]): void {
     if (!cloudLessons || cloudLessons.length === 0) return;
-    const local = storageEngine.get<Lesson[]>(STORAGE_KEYS.LESSONS, INITIAL_LESSONS);
-    const map = new Map<string, Lesson>();
-    local.forEach((l) => map.set(l.id, l));
-    cloudLessons.forEach((cl) => {
-      const existing = map.get(cl.id);
-      map.set(cl.id, existing ? { ...existing, ...cl } : cl);
-    });
-    storageEngine.set(STORAGE_KEYS.LESSONS, Array.from(map.values()));
+    storageEngine.set(STORAGE_KEYS.LESSONS, cloudLessons);
+    storageEngine.notifyDataChanged();
   }
 
   // ── PROGRESS & NOTES ─────────────────────────────────────────────────────

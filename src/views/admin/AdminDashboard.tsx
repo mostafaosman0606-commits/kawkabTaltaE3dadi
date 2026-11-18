@@ -37,7 +37,7 @@ import { useAuth } from '../../services/authContext';
 import { EGYPT_GOVERNORATES } from '../../constants/governorates';
 import { generateQuestionsFromText, gradeEssayWithAi } from '../../services/aiService';
 import { sendBrowserNotification } from '../../services/notifications';
-import { sbUploadLessonImage, sbDeleteLessonImage } from '../../services/supabaseDb';
+import { sbUploadLessonImage, sbDeleteLessonImage, syncCloudDataToLocal } from '../../services/supabaseDb';
 import {
   Subject,
   Lesson,
@@ -117,8 +117,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   useEffect(() => {
     const handleSync = () => forceRefresh();
     window.addEventListener('kawkab_cloud_synced', handleSync);
+    syncCloudDataToLocal(user?.id || '').catch(() => {});
     return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
-  }, []);
+  }, [user?.id]);
 
   // Always reset scroll to top on tab change
   useEffect(() => {

@@ -531,6 +531,7 @@ export function setupSupabaseRealtimeSync(onSync: () => void): () => void {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'lessons' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'units' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'examinations' }, onSync)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'questions' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_attempts' }, onSync)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, onSync)
@@ -1367,31 +1368,17 @@ export async function syncCloudDataToLocal(userId: string): Promise<void> {
         localStorage.setItem('kawkab_robo_conversations_v1', JSON.stringify(localAll));
       } catch {}
     }
-    // Global 3. Subjects synchronization across all devices
+    // Global 3. Subjects synchronization across all devices (Cloud is Authoritative Source of Truth)
     if (cloudSubjects && cloudSubjects.length > 0) {
       try {
-        const local = JSON.parse(localStorage.getItem('kawkab_subjects_v9') || '[]');
-        const map = new Map();
-        local.forEach((s: any) => map.set(s.id, s));
-        cloudSubjects.forEach((cs) => {
-          const existing = map.get(cs.id);
-          map.set(cs.id, existing ? { ...existing, ...cs } : cs);
-        });
-        localStorage.setItem('kawkab_subjects_v9', JSON.stringify(Array.from(map.values())));
+        localStorage.setItem('kawkab_subjects_v9', JSON.stringify(cloudSubjects));
       } catch {}
     }
 
-    // Global 4. Lessons synchronization across all devices
+    // Global 4. Lessons synchronization across all devices (Cloud is Authoritative Source of Truth)
     if (cloudLessons && cloudLessons.length > 0) {
       try {
-        const local = JSON.parse(localStorage.getItem('kawkab_lessons_v9') || '[]');
-        const map = new Map();
-        local.forEach((l: any) => map.set(l.id, l));
-        cloudLessons.forEach((cl) => {
-          const existing = map.get(cl.id);
-          map.set(cl.id, existing ? { ...existing, ...cl } : cl);
-        });
-        localStorage.setItem('kawkab_lessons_v9', JSON.stringify(Array.from(map.values())));
+        localStorage.setItem('kawkab_lessons_v9', JSON.stringify(cloudLessons));
       } catch {}
     }
 

@@ -24,6 +24,13 @@ interface LessonViewProps {
 
 export const LessonView: React.FC<LessonViewProps> = ({ lessonId, onBack, onUpgradeClick }) => {
   const { user } = useAuth();
+  const [, setSyncKey] = useState(0);
+  useEffect(() => {
+    const handleSync = () => setSyncKey((k) => k + 1);
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, []);
+
   const lesson = db.getLessonById(lessonId);
   const subject = lesson ? db.getSubjectById(lesson.subjectId) : null;
   const isCompletedInitially = user ? db.isLessonCompleted(lessonId, user.id) : false;

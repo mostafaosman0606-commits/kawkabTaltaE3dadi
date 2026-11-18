@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { db } from '../../services/storage';
 import { useAuth } from '../../services/authContext';
+import { syncCloudDataToLocal } from '../../services/supabaseDb';
 import { SubjectIcon } from '../../components/SubjectIcon';
 
 interface SubjectDetailViewProps {
@@ -32,6 +33,16 @@ export const SubjectDetailView: React.FC<SubjectDetailViewProps> = ({
   onUpgradeClick,
 }) => {
   const { user } = useAuth();
+  const [, setSyncVersion] = useState(0);
+
+  useEffect(() => {
+    const handleSync = () => setSyncVersion((v) => v + 1);
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    // Fetch latest cloud lessons on mount
+    syncCloudDataToLocal(user?.id || '').catch(() => {});
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, [subjectId, user?.id]);
+
   const subject = db.getSubjectById(subjectId);
   const units = db.getUnits(subjectId);
   const lessons = db.getLessons(subjectId);

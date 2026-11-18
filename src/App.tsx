@@ -53,6 +53,13 @@ export const AppContent: React.FC = () => {
   const [activeExamId, setActiveExamId] = useState<string>('');
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [, setAppSyncTick] = useState(0);
+
+  useEffect(() => {
+    const handleSync = () => setAppSyncTick((t) => t + 1);
+    window.addEventListener('kawkab_cloud_synced', handleSync);
+    return () => window.removeEventListener('kawkab_cloud_synced', handleSync);
+  }, []);
 
   // Set initial default view mode based on role when logged in
   useEffect(() => {
