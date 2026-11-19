@@ -63,13 +63,19 @@ export async function askRoboServer(
       return { reply: 'سجّل الدخول أولًا عشان تقدر تستخدم روبو.', source: 'offline' };
     }
 
+    // Build history payload (last 8 non-seed messages)
+    const historyPayload = history
+      .filter((m) => !m.id.startsWith('msg-seed') && m.text.trim())
+      .slice(-8)
+      .map(({ sender, text }) => ({ sender, text: text.slice(0, 2000) }));
+
     const response = await fetch('/api/robo-tutor', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ message: normalizedMessage }),
+      body: JSON.stringify({ message: normalizedMessage, history: historyPayload }),
     });
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (payload?.quotaExceeded === true) {

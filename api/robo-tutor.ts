@@ -1,18 +1,36 @@
 import { createClient } from '@supabase/supabase-js';
 
+interface HistoryMessage {
+  sender: 'user' | 'robo';
+  text: string;
+}
+
 interface RequestBody {
   message?: unknown;
+  history?: unknown;
 }
 
 export default async function handler(req: any, res: any) {
+  // CORS headers for preflight
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
-  const authorization = typeof req.headers?.authorization === 'string' ? req.headers.authorization : '';
+  // --- Auth ---
+  const authorization =
+    typeof req.headers?.authorization === 'string' ? req.headers.authorization : '';
   const tokenMatch = authorization.match(/^Bearer\s+(.+)$/i);
   if (!tokenMatch) return res.status(401).json({ error: 'Authentication required.' });
 
+  // --- Env vars presence check ---
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -21,15 +39,37 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    // --- Validate user via admin client ---
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
-    const { data: { user }, error: authError } = await adminClient.auth.getUser(tokenMatch[1]);
-    if (authError || !user) return res.status(401).json({ error: 'Invalid or expired session.' });
+    const {
+      data: { user },
+      error: authError,
+    } = await adminClient.auth.getUser(tokenMatch[1]);
+    if (authError || !user) {
+      return res.status(401).json({ error: 'Invalid or expired session.' });
+    }
 
+    // --- Parse and validate body ---
     const body = (req.body ?? {}) as RequestBody;
-    if (typeof body.message !== 'string' || !body.message.trim() || body.message.length > 5000) {
+    if (
+      typeof body.message !== 'string' ||
+      !body.message.trim() ||
+      body.message.length > 5000
+    ) {
       return res.status(400).json({ error: 'Message must contain 1 to 5000 characters.' });
     }
 
+    // Parse conversation history (last 8 turns max)
+    const rawHistory = Array.isArray(body.history) ? body.history : [];
+    const history: HistoryMessage[] = rawHistory
+      .filter(
+        (m: any) =>
+          m && typeof m.sender === 'string' && typeof m.text === 'string' && m.text.trim()
+      )
+      .slice(-8)
+      .map((m: any) => ({ sender: m.sender as 'user' | 'robo', text: String(m.text).slice(0, 2000) }));
+
+    // --- Check & consume quota ---
     const userClient = createClient(supabaseUrl, serviceRoleKey, {
       global: { headers: { Authorization: `Bearer ${tokenMatch[1]}` } },
     });
@@ -47,6 +87,37 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // --- Build Gemini multi-turn contents ---
+    const systemPrompt =
+      '\u0623\u0646\u062a \u0631\u0648\u0628\u0648 \u{1F916}\u060c \u0627\u0644\u0645\u0639\u0644\u0645 \u0627\u0644\u0630\u0643\u064a \u0644\u0645\u0646\u0635\u0629 \u0643\u0648\u0643\u0628 \u062a\u0627\u0644\u062a\u0629 \u0625\u0639\u062f\u0627\u062f\u064a.\n' +
+      '\u0645\u0647\u0645\u062a\u0643: \u0634\u0631\u062d \u0645\u0646\u0647\u062c \u0627\u0644\u0635\u0641 \u0627\u0644\u062b\u0627\u0644\u062b \u0627\u0644\u0625\u0639\u062f\u0627\u062f\u064a \u0641\u064a \u0645\u0635\u0631 \u062e\u0637\u0648\u0629 \u0628\u062e\u0637\u0648\u0629 \u0628\u0623\u0633\u0644\u0648\u0628 \u0648\u062f\u0648\u062f \u0648\u0645\u0634\u062c\u0639.\n' +
+      '\u0627\u0644\u0642\u0648\u0627\u0639\u062f:\n' +
+      '1. \u0623\u062c\u0628 \u062f\u0627\u0626\u0645\u064b\u0627 \u0628\u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0627\u0644\u0641\u0635\u062d\u0649 \u0627\u0644\u0633\u0647\u0644\u0629.\n' +
+      '2. \u0631\u0643\u0651\u0632 \u0639\u0644\u0649 \u0627\u0644\u0645\u0646\u0647\u062c \u0627\u0644\u0645\u0635\u0631\u064a \u0644\u0644\u0635\u0641 \u0627\u0644\u062b\u0627\u0644\u062b \u0627\u0644\u0625\u0639\u062f\u0627\u062f\u064a.\n' +
+      '3. \u0627\u0633\u062a\u062e\u062f\u0645 \u0623\u0645\u062b\u0644\u0629 \u0648\u0627\u0636\u062d\u0629 \u0648\u062a\u0634\u062c\u064a\u0639 \u0627\u0644\u0637\u0627\u0644\u0628.\n' +
+      '4. \u0625\u0630\u0627 \u0643\u0627\u0646 \u0627\u0644\u0633\u0624\u0627\u0644 \u063a\u064a\u0631 \u0648\u0627\u0636\u062d\u060c \u0627\u0637\u0644\u0628 \u062a\u0648\u0636\u064a\u062d\u064b\u0627 \u0628\u0623\u062f\u0628.\n' +
+      '5. \u0644\u0627 \u062a\u062e\u062a\u0631\u0639 \u0645\u0639\u0644\u0648\u0645\u0627\u062a\u060c \u0648\u0625\u0630\u0627 \u0644\u0645 \u062a\u0639\u0631\u0641 \u0627\u0644\u062c\u0648\u0627\u0628 \u0642\u0644 \u0630\u0644\u0643 \u0628\u0635\u0631\u0627\u062d\u0629.';
+
+    type GeminiContent = { role: 'user' | 'model'; parts: { text: string }[] };
+    const contents: GeminiContent[] = [];
+
+    // Add history turns
+    for (const turn of history) {
+      contents.push({
+        role: turn.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: turn.text }],
+      });
+    }
+
+    // Add current message with system context prepended to first user turn
+    const userText =
+      contents.length === 0
+        ? `${systemPrompt}\n\n\u0633\u0624\u0627\u0644 \u0627\u0644\u0637\u0627\u0644\u0628: ${body.message.trim()}`
+        : body.message.trim();
+
+    contents.push({ role: 'user', parts: [{ text: userText }] });
+
+    // --- Call Gemini ---
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
     try {
@@ -57,26 +128,44 @@ export default async function handler(req: any, res: any) {
           signal: controller.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: `أنت روبو، مساعد تعليمي لطلاب الصف الثالث الإعدادي. أجب بالعربية وبشرح مناسب.\n\nسؤال الطالب: ${body.message.trim()}` }] }],
-            generationConfig: { maxOutputTokens: 600, temperature: 0.7 },
+            contents,
+            systemInstruction: contents.length > 1
+              ? { parts: [{ text: systemPrompt }] }
+              : undefined,
+            generationConfig: {
+              maxOutputTokens: 800,
+              temperature: 0.65,
+            },
           }),
         }
       );
+
       if (!aiResponse.ok) {
-        console.warn('[Vercel Robo] Provider request failed with status:', aiResponse.status);
+        const errBody = await aiResponse.text().catch(() => '');
+        console.warn('[Vercel Robo] Gemini request failed:', aiResponse.status, errBody.slice(0, 200));
         return res.status(502).json({ error: 'Robo could not reach the AI provider.' });
       }
+
       const data = await aiResponse.json();
       const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (typeof reply !== 'string' || !reply.trim()) {
+        console.warn('[Vercel Robo] Empty reply from Gemini:', JSON.stringify(data).slice(0, 300));
         return res.status(502).json({ error: 'The AI provider returned no answer.' });
       }
-      return res.status(200).json({ reply, usedQuota: quota.used, quotaLimit: quota.limit });
+
+      return res.status(200).json({
+        reply: reply.trim(),
+        usedQuota: quota.used,
+        quotaLimit: quota.limit,
+      });
     } finally {
       clearTimeout(timer);
     }
   } catch (error) {
-    console.warn('[Vercel Robo] Request failed:', error instanceof Error ? error.message : 'Unknown error');
+    console.warn(
+      '[Vercel Robo] Request failed:',
+      error instanceof Error ? error.message : 'Unknown error'
+    );
     return res.status(500).json({ error: 'Robo request failed.' });
   }
 }
