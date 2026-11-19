@@ -42,6 +42,40 @@ function offlineRoboReply(hasAttachment: boolean): string {
   return 'خدمة روبو الذكية غير متاحة مؤقتًا، ومش هخمن لك إجابة ممكن تكون غلط. جرّب تاني بعد قليل، أو اكتب اسم المادة والدرس والسؤال بالتحديد عشان نكمل أول ما الخدمة ترجع.' + attachmentNote;
 }
 
+/** Extract Supabase access_token from the client or directly from localStorage as fallback */
+function getAccessToken(): string | null {
+  // 1. Try supabase client first (most reliable)
+  if (supabase) {
+    // We'll use a sync approach via localStorage key that supabase-js writes
+    // This is the standard supabase-js v2 storage key format
+  }
+  // 2. Try reading supabase-js v2 session from localStorage
+  try {
+    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+    if (supabaseUrl) {
+      const storageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const token = parsed?.access_token || parsed?.session?.access_token;
+        if (typeof token === 'string' && token.length > 20) return token;
+      }
+    }
+    // 3. Fallback: scan all localStorage keys for supabase auth token
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i) || '';
+      if (key.includes('auth-token') || key.includes('supabase')) {
+        try {
+          const val = JSON.parse(localStorage.getItem(key) || '{}');
+          const tok = val?.access_token || val?.session?.access_token;
+          if (typeof tok === 'string' && tok.length > 20) return tok;
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 export async function askRoboServer(
   _userId: string,
   message: string,
@@ -53,13 +87,24 @@ export async function askRoboServer(
   if (normalizedMessage.length > 4000) {
     return { reply: 'خلّي السؤال في ٤٠٠٠ حرف أو أقل، وقسّمه لو محتاج شرح أكتر.', source: 'offline' };
   }
-  if (!isSupabaseConfigured() || !supabase) {
-    return { reply: offlineRoboReply(Boolean(attachmentBase64)), source: 'offline' };
-  }
 
   try {
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError || !session?.access_token) {
+    // Get access token: try supabase client first, then localStorage fallback
+    let accessToken: string | null = null;
+
+    if (supabase) {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (!sessionError && session?.access_token) {
+        accessToken = session.access_token;
+      }
+    }
+
+    // localStorage fallback if supabase client didn't return a session
+    if (!accessToken) {
+      accessToken = getAccessToken();
+    }
+
+    if (!accessToken) {
       return { reply: 'سجّل الدخول أولًا عشان تقدر تستخدم روبو.', source: 'offline' };
     }
 
@@ -73,7 +118,7 @@ export async function askRoboServer(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ message: normalizedMessage, history: historyPayload }),
     });
