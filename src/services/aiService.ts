@@ -120,7 +120,11 @@ export async function askRoboServer(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ message: normalizedMessage, history: historyPayload }),
+      body: JSON.stringify({
+        message: normalizedMessage,
+        attachmentBase64: attachmentBase64 || undefined,
+        history: historyPayload,
+      }),
     });
     const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (payload?.quotaExceeded === true) {

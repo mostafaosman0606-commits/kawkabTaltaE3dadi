@@ -412,15 +412,17 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert('حجم الملف أكبر من الحد المسموح (10 ميجابايت).');
+    if (file.size > 15 * 1024 * 1024) {
+      alert('حجم الملف أكبر من الحد المسموح (15 ميجابايت).');
       e.target.value = '';
       return;
     }
 
     const lowerName = file.name.toLowerCase();
     const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
-    const isSupportedImage = /^image\/(jpeg|png|webp)$/.test(file.type) || /\.(jpe?g|png|webp)$/.test(lowerName);
+    const isSupportedImage =
+      /^image\/(jpeg|png|webp|heic|heif)$/.test(file.type) ||
+      /\.(jpe?g|png|webp|heic|heif)$/.test(lowerName);
     if (!isPdf && !isSupportedImage) {
       alert('ارفع ملف PDF أو صورة بصيغة JPG أو PNG أو WebP.');
       e.target.value = '';
@@ -431,8 +433,39 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
 
     const reader = new FileReader();
     reader.onloadend = () => {
-      setAttachmentPreview(reader.result as string);
-      inputFieldRef.current?.focus();
+      const rawDataUrl = reader.result as string;
+      if (isSupportedImage) {
+        const img = new Image();
+        img.onload = () => {
+          const maxDim = 1600;
+          let { width, height } = img;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          setAttachmentPreview(compressed);
+          inputFieldRef.current?.focus();
+        };
+        img.onerror = () => {
+          setAttachmentPreview(rawDataUrl);
+          inputFieldRef.current?.focus();
+        };
+        img.src = rawDataUrl;
+      } else {
+        setAttachmentPreview(rawDataUrl);
+        inputFieldRef.current?.focus();
+      }
     };
     reader.onerror = () => {
       setVoiceError('تعذر قراءة الملف. جرّب اختيار الملف مرة أخرى.');
