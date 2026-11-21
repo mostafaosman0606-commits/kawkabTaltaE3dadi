@@ -11,6 +11,14 @@ interface RequestBody {
   attachmentBase64?: unknown;
 }
 
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '4.5mb',
+    },
+  },
+};
+
 export default async function handler(req: any, res: any) {
   // CORS headers for preflight
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -75,23 +83,15 @@ export default async function handler(req: any, res: any) {
       return res.status(401).json({ error: 'Invalid or expired session.' });
     }
 
-    // --- Parse and validate body ---
-    const body = (req.body ?? {}) as RequestBody;
+    // --- Parse and validate body safely ---
+    let body: RequestBody = {};
+    try {
+      body = (typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {})) as RequestBody;
+    } catch {
+      body = (req.body ?? {}) as RequestBody;
+    }
+
     const rawMessage = typeof body.message === 'string' ? body.message.trim() : '';
-    const hasAttachment =
-      typeof body.attachmentBase64 === 'string' &&
-      body.attachmentBase64.includes('base64,');
-
-    if (!rawMessage && !hasAttachment) {
-      return res.status(400).json({ error: 'Message or attachment is required.' });
-    }
-    if (rawMessage.length > 5000) {
-      return res.status(400).json({ error: 'Message must not exceed 5000 characters.' });
-    }
-
-    const messageText =
-      rawMessage ||
-      'يرجى مراجعة وشرح السؤال أو المسألة المرفقة في الصورة بالتفصيل خطوة بخطوة وفق منهج الصف الثالث الإعدادي.';
 
     // Parse attachment if present (safe extraction for data URL or raw base64)
     let attachmentPart: { inlineData: { mimeType: string; data: string } } | undefined;
@@ -110,6 +110,28 @@ export default async function handler(req: any, res: any) {
         attachmentPart = { inlineData: { mimeType: 'image/jpeg', data: raw.replace(/\s/g, '') } };
       }
     }
+
+    if (!rawMessage && !attachmentPart) {
+      return res.status(400).json({ error: 'Message or attachment is required.' });
+    }
+    if (rawMessage.length > 5000) {
+      return res.status(400).json({ error: 'Message must not exceed 5000 characters.' });
+    }
+
+    const hasImage = Boolean(attachmentPart);
+    let messageText = rawMessage;
+    if (!messageText && hasImage) {
+      messageText = 'أرفقت لك هذه الصورة، أرجو فحص المسألة أو السؤال الموجود فيها وشرح الحل خطوة بخطوة بالكامل بالتفصيل وفق المنهج.';
+    } else if (hasImage) {
+      messageText = `[تنبيه: الصورة مرفقة أعلاه مباشرة مع هذا السؤال]\nسؤال الطالب بخصوص الصورة: ${rawMessage}`;
+    }
+
+    console.log('[Vercel Robo] Request parsed:', {
+      hasMessage: Boolean(rawMessage),
+      hasAttachment: hasImage,
+      mimeType: attachmentPart?.inlineData?.mimeType,
+      dataLen: attachmentPart?.inlineData?.data?.length,
+    });
 
     // Parse conversation history (last 8 turns max)
     const rawHistory = Array.isArray(body.history) ? body.history : [];

@@ -421,10 +421,12 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     const lowerName = file.name.toLowerCase();
     const isPdf = file.type === 'application/pdf' || lowerName.endsWith('.pdf');
     const isSupportedImage =
-      /^image\/(jpeg|png|webp|heic|heif)$/.test(file.type) ||
-      /\.(jpe?g|png|webp|heic|heif)$/.test(lowerName);
+      file.type.startsWith('image/') ||
+      /\.(jpe?g|png|webp|heic|heif|bmp|jfif)$/i.test(lowerName) ||
+      (!isPdf && !file.type);
+
     if (!isPdf && !isSupportedImage) {
-      alert('ارفع ملف PDF أو صورة بصيغة JPG أو PNG أو WebP.');
+      alert('يرجى اختيار صورة واضحة (JPG أو PNG أو WebP) أو ملف PDF.');
       e.target.value = '';
       return;
     }
@@ -432,12 +434,15 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
     setAttachmentName(file.name);
 
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onload = () => {
       const rawDataUrl = reader.result as string;
-      if (isSupportedImage) {
+      // Immediately set preview so it's ready even if user clicks send instantly
+      setAttachmentPreview(rawDataUrl);
+
+      if (isSupportedImage && !isPdf) {
         const img = new Image();
         img.onload = () => {
-          const maxDim = 1600;
+          const maxDim = 1200;
           let { width, height } = img;
           if (width > maxDim || height > maxDim) {
             if (width > height) {
@@ -452,20 +457,19 @@ export const RoboAiView: React.FC<RoboAiViewProps> = ({ onUpgradeClick }) => {
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          const compressed = canvas.toDataURL('image/jpeg', 0.85);
-          setAttachmentPreview(compressed);
-          inputFieldRef.current?.focus();
-        };
-        img.onerror = () => {
-          setAttachmentPreview(rawDataUrl);
+          if (ctx) {
+            // White background for contrast with math equations and transparent screenshots
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.8);
+            setAttachmentPreview(compressed);
+          }
           inputFieldRef.current?.focus();
         };
         img.src = rawDataUrl;
-      } else {
-        setAttachmentPreview(rawDataUrl);
-        inputFieldRef.current?.focus();
       }
+      inputFieldRef.current?.focus();
     };
     reader.onerror = () => {
       setVoiceError('تعذر قراءة الملف. جرّب اختيار الملف مرة أخرى.');
