@@ -516,7 +516,7 @@ export class SocialService {
 
     const storedUserMsg: RoboMessage = {
       ...userMsg,
-      attachmentUrl: (attachmentUrl && attachmentUrl.length > 2048) ? undefined : attachmentUrl,
+      attachmentUrl: (attachmentUrl && attachmentUrl.length > 1000000) ? undefined : attachmentUrl,
     };
     conv.messages.push(storedUserMsg);
     conv.updatedAt = new Date().toISOString();

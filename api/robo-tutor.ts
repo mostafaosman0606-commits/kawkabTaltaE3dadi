@@ -93,16 +93,21 @@ export default async function handler(req: any, res: any) {
       rawMessage ||
       'يرجى مراجعة وشرح السؤال أو المسألة المرفقة في الصورة بالتفصيل خطوة بخطوة وفق منهج الصف الثالث الإعدادي.';
 
-    // Parse attachment if present
+    // Parse attachment if present (safe extraction for data URL or raw base64)
     let attachmentPart: { inlineData: { mimeType: string; data: string } } | undefined;
-    if (hasAttachment && typeof body.attachmentBase64 === 'string') {
-      const match = body.attachmentBase64.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/s);
-      if (match) {
-        const mimeType = match[1].toLowerCase();
-        const data = match[2];
+    if (typeof body.attachmentBase64 === 'string' && body.attachmentBase64.length > 50) {
+      const raw = body.attachmentBase64.trim();
+      const commaIdx = raw.indexOf(',');
+      if (commaIdx !== -1 && raw.startsWith('data:')) {
+        const header = raw.slice(0, commaIdx);
+        const base64Data = raw.slice(commaIdx + 1).replace(/\s/g, '');
+        const mimeMatch = header.match(/^data:([^;]+)/i);
+        const mimeType = (mimeMatch ? mimeMatch[1] : 'image/jpeg').trim().toLowerCase();
         if (mimeType.startsWith('image/') || mimeType === 'application/pdf') {
-          attachmentPart = { inlineData: { mimeType, data } };
+          attachmentPart = { inlineData: { mimeType, data: base64Data } };
         }
+      } else if (!raw.startsWith('data:')) {
+        attachmentPart = { inlineData: { mimeType: 'image/jpeg', data: raw.replace(/\s/g, '') } };
       }
     }
 
@@ -143,14 +148,14 @@ export default async function handler(req: any, res: any) {
 
     // --- Build Gemini multi-turn contents ---
     const systemPrompt =
-      '\u0623\u0646\u062a \u0631\u0648\u0628\u0648 \u{1F916}\u060c \u0627\u0644\u0645\u0639\u0644\u0645 \u0627\u0644\u0630\u0643\u064a \u0644\u0645\u0646\u0635\u0629 \u0643\u0648\u0643\u0628 \u062a\u0627\u0644\u062a\u0629 \u0625\u0639\u062f\u0627\u062f\u064a.\n' +
-      '\u0645\u0647\u0645\u062a\u0643: \u0634\u0631\u062d \u0645\u0646\u0647\u062c \u0627\u0644\u0635\u0641 \u0627\u0644\u062b\u0627\u0644\u062b \u0627\u0644\u0625\u0639\u062f\u0627\u062f\u064a \u0641\u064a \u0645\u0635\u0631 \u062e\u0637\u0648\u0629 \u0628\u062e\u0637\u0648\u0629 \u0628\u0623\u0633\u0644\u0648\u0628 \u0648\u062f\u0648\u062f \u0648\u0645\u0634\u062c\u0639.\n' +
-      '\u0627\u0644\u0642\u0648\u0627\u0639\u062f:\n' +
-      '1. \u0623\u062c\u0628 \u062f\u0627\u0626\u0645\u064b\u0627 \u0628\u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u0627\u0644\u0641\u0635\u062d\u0649 \u0627\u0644\u0633\u0647\u0644\u0629.\n' +
-      '2. \u0631\u0643\u0651\u0632 \u0639\u0644\u0649 \u0627\u0644\u0645\u0646\u0647\u062c \u0627\u0644\u0645\u0635\u0631\u064a \u0644\u0644\u0635\u0641 \u0627\u0644\u062b\u0627\u0644\u062b \u0627\u0644\u0625\u0639\u062f\u0627\u062f\u064a.\n' +
-      '3. \u0627\u0633\u062a\u062e\u062f\u0645 \u0623\u0645\u062b\u0644\u0629 \u0648\u0627\u0636\u062d\u0629 \u0648\u062a\u0634\u062c\u064a\u0639 \u0627\u0644\u0637\u0627\u0644\u0628.\n' +
-      '4. \u0625\u0630\u0627 \u0623\u0631\u0641\u0642 \u0627\u0644\u0637\u0627\u0644\u0628 \u0635\u0648\u0631\u0629 \u0623\u0648 \u0645\u0633\u062a\u0646\u062f\u0627\u064b\u060c \u0627\u0642\u0631\u0623 \u0627\u0644\u0645\u0633\u0623\u0644\u0629 \u0623\u0648 \u0627\u0644\u0633\u0624\u0627\u0644 \u0628\u062f\u0642\u0629 \u0648\u0627\u0634\u0631\u062d \u0627\u0644\u062d\u0644 \u0628\u0627\u0644\u062e\u0637\u0648\u0627\u062a.\n' +
-      '5. \u0644\u0627 \u062a\u062e\u062a\u0631\u0639 \u0645\u0639\u0644\u0648\u0645\u0627\u062a\u060c \u0648\u0625\u0630\u0627 \u0644\u0645 \u062a\u0639\u0631\u0641 \u0627\u0644\u062c\u0648\u0627\u0628 \u0642\u0644 \u0630\u0644\u0643 \u0628\u0635\u0631\u0627\u062d\u0629.';
+      'أنت «روبو» 🤖، المعلم والمدرب الذكي لمنصة كوكب تالتة إعدادي في مصر.\n' +
+      'مهمتك: مساعدة وشرح منهج الصف الثالث الإعدادي خطوة بخطوة باللغة العربية بأسلوب تعليمي مبسط ومشجع.\n\n' +
+      'القواعد الإلزامية:\n' +
+      '1. اكتب دائماً إجابة كاملة وشاملة ومفصلة حتى النهاية دون أن تتوقف أو تقطع الرد في المنتصف.\n' +
+      '2. إذا أرسل الطالب صورة أو مستنداً، افحص الصورة واستخرج المسألة أو السؤال المكتوب فيها فوراً، واشرح طريقة الحل خطوة بخطوة وصولاً إلى الناتج النهائي.\n' +
+      '3. إذا كانت الصورة تحتوي على أكثر من مسألة، أجب عن المسألة الأولى واطلب من الطالب تأكيد رغبته في حل باقي المسائل.\n' +
+      '4. استخدم أمثلة توضيحية تناسب مقرر وزارة التربية والتعليم المصرية لطلاب الشهادة الإعدادية.\n' +
+      '5. نسق الإجابة بنقاط واضحة وخطوات مرتبة تريح الطالب أثناء القراءة والمذاكرة.';
 
     type GeminiPart =
       | { text: string }
@@ -159,7 +164,7 @@ export default async function handler(req: any, res: any) {
     type GeminiContent = { role: 'user' | 'model'; parts: GeminiPart[] };
     const contents: GeminiContent[] = [];
 
-    // Add history turns
+    // Add history turns (last turns)
     for (const turn of history) {
       contents.push({
         role: turn.sender === 'user' ? 'user' : 'model',
@@ -167,16 +172,12 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // Add current message with system context prepended to first user turn
-    const userPromptText =
-      contents.length === 0
-        ? `${systemPrompt}\n\n\u0633\u0624\u0627\u0644 \u0627\u0644\u0637\u0627\u0644\u0628: ${messageText}`
-        : messageText;
-
-    const currentParts: GeminiPart[] = [{ text: userPromptText }];
+    // Current user turn: attach image/doc first if present, then text
+    const currentParts: GeminiPart[] = [];
     if (attachmentPart) {
       currentParts.push(attachmentPart);
     }
+    currentParts.push({ text: messageText });
 
     contents.push({ role: 'user', parts: currentParts });
 
@@ -194,7 +195,7 @@ export default async function handler(req: any, res: any) {
     for (const model of CANDIDATE_MODELS) {
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 12000);
+        const timer = setTimeout(() => controller.abort(), 25000);
         const aiResponse = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
           {
@@ -203,11 +204,9 @@ export default async function handler(req: any, res: any) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents,
-              systemInstruction: contents.length > 1
-                ? { parts: [{ text: systemPrompt }] }
-                : undefined,
+              systemInstruction: { parts: [{ text: systemPrompt }] },
               generationConfig: {
-                maxOutputTokens: 800,
+                maxOutputTokens: 3500,
                 temperature: 0.65,
               },
             }),
