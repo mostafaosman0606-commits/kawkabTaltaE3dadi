@@ -149,50 +149,68 @@ export default async function handler(req: any, res: any) {
 
     contents.push({ role: 'user', parts: [{ text: userText }] });
 
-    // --- Call Gemini ---
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 45000);
-    try {
-      const aiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
-        {
-          method: 'POST',
-          signal: controller.signal,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents,
-            systemInstruction: contents.length > 1
-              ? { parts: [{ text: systemPrompt }] }
-              : undefined,
-            generationConfig: {
-              maxOutputTokens: 800,
-              temperature: 0.65,
-            },
-          }),
+    // --- Call Gemini with automatic model fallback ---
+    const CANDIDATE_MODELS = [
+      'gemini-3-flash-preview',
+      'gemini-3.1-flash-lite',
+      'gemini-flash-latest',
+      'gemini-3.8-flash',
+    ];
+
+    let reply: string | undefined;
+    let lastError = '';
+
+    for (const model of CANDIDATE_MODELS) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
+        const aiResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+          {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents,
+              systemInstruction: contents.length > 1
+                ? { parts: [{ text: systemPrompt }] }
+                : undefined,
+              generationConfig: {
+                maxOutputTokens: 800,
+                temperature: 0.65,
+              },
+            }),
+          }
+        );
+        clearTimeout(timer);
+
+        if (aiResponse.ok) {
+          const data = await aiResponse.json();
+          const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (typeof candidateText === 'string' && candidateText.trim()) {
+            reply = candidateText.trim();
+            break;
+          }
+        } else {
+          lastError = `Status ${aiResponse.status} from ${model}`;
+          console.warn(`[Vercel Robo] Model ${model} returned ${aiResponse.status}`);
         }
-      );
-
-      if (!aiResponse.ok) {
-        const errBody = await aiResponse.text().catch(() => '');
-        console.warn('[Vercel Robo] Gemini request failed:', aiResponse.status, errBody.slice(0, 200));
-        return res.status(502).json({ error: 'Robo could not reach the AI provider.' });
+      } catch (err: any) {
+        lastError = err?.message || 'timeout/fetch error';
+        console.warn(`[Vercel Robo] Model ${model} error:`, lastError);
       }
-
-      const data = await aiResponse.json();
-      const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (typeof reply !== 'string' || !reply.trim()) {
-        console.warn('[Vercel Robo] Empty reply from Gemini:', JSON.stringify(data).slice(0, 300));
-        return res.status(502).json({ error: 'The AI provider returned no answer.' });
-      }
-
-      return res.status(200).json({
-        reply: reply.trim(),
-        usedQuota: quota.used,
-        quotaLimit: quota.limit,
-      });
-    } finally {
-      clearTimeout(timer);
     }
+
+    if (!reply) {
+      console.warn('[Vercel Robo] All candidate models failed. Last error:', lastError);
+      return res.status(502).json({ error: 'Robo could not reach the AI provider.' });
+    }
+
+    return res.status(200).json({
+      reply,
+      usedQuota: quota.used,
+      quotaLimit: quota.limit,
+    });
   } catch (error) {
     console.warn(
       '[Vercel Robo] Request failed:',
